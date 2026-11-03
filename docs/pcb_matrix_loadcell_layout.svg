@@ -1,0 +1,238 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 1500" width="100%" height="100%" style="background-color: #0b1120; font-family: 'Segoe UI', Arial, sans-serif;">
+  <defs>
+    <!-- Efek Shadow & Glow -->
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="3" dy="4" stdDeviation="4" flood-color="#000000" flood-opacity="0.6"/>
+    </filter>
+    <radialGradient id="screw-pad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#475569"/>
+      <stop offset="50%" stop-color="#334155"/>
+      <stop offset="85%" stop-color="#cbd5e1"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </radialGradient>
+  </defs>
+
+  <!-- HEADER JUDUL -->
+  <text x="590" y="38" font-size="22" font-weight="bold" fill="#38bdf8" text-anchor="middle" letter-spacing="1">MAPPING SOKET JST PADA PCB MATRIX: ALAT UJI KATROL &amp; BEBAN</text>
+  <text x="590" y="62" font-size="13" fill="#94a3b8" text-anchor="middle">Grid: A–Y (25 Kolom) × 1–29 (29 Baris) | Seluruh Komponen Menggunakan Soket JST-XH (Spasi 1 Pin)</text>
+
+  <!-- PAPAN PCB MATRIX (Perfboard Hijau Tua) -->
+  <rect x="70" y="80" width="1040" height="1340" rx="16" fill="#13231e" stroke="#10b981" stroke-width="3" filter="url(#shadow)"/>
+
+  <!-- LABEL GRID KOLOM (A - Y) - ATAS & BAWAH -->
+  <g font-size="11" font-weight="bold" fill="#34d399" text-anchor="middle">
+    <!-- Atas -->
+    <text x="140" y="104">A</text><text x="178" y="104">B</text><text x="216" y="104">C</text><text x="254" y="104">D</text>
+    <text x="292" y="104">E</text><text x="330" y="104">F</text><text x="368" y="104">G</text><text x="406" y="104">H</text>
+    <text x="444" y="104">I</text><text x="482" y="104">J</text><text x="520" y="104">K</text><text x="558" y="104">L</text>
+    <text x="596" y="104">M</text><text x="634" y="104">N</text><text x="672" y="104">O</text><text x="710" y="104">P</text>
+    <text x="748" y="104">Q</text><text x="786" y="104">R</text><text x="824" y="104">S</text><text x="862" y="104">T</text>
+    <text x="900" y="104">U</text><text x="938" y="104">V</text><text x="976" y="104">W</text><text x="1014" y="104">X</text>
+    <text x="1052" y="104">Y</text>
+  </g>
+
+  <!-- LABEL GRID BARIS (1 - 29) -->
+  <g font-size="10.5" font-weight="bold" fill="#34d399" text-anchor="middle">
+    <text x="100" y="136">1</text><text x="100" y="178">2</text><text x="100" y="220">3</text><text x="100" y="262">4</text>
+    <text x="100" y="304">5</text><text x="100" y="346">6</text><text x="100" y="388">7</text><text x="100" y="430">8</text>
+    <text x="100" y="472">9</text><text x="100" y="514">10</text><text x="100" y="556">11</text><text x="100" y="598">12</text>
+    <text x="100" y="640">13</text><text x="100" y="682">14</text><text x="100" y="724">15</text><text x="100" y="766">16</text>
+    <text x="100" y="808">17</text><text x="100" y="850">18</text><text x="100" y="892">19</text><text x="100" y="934">20</text>
+    <text x="100" y="976">21</text><text x="100" y="1018">22</text><text x="100" y="1060">23</text><text x="100" y="1102">24</text>
+    <text x="100" y="1144">25</text><text x="100" y="1186">26</text><text x="100" y="1228">27</text><text x="100" y="1270">28</text>
+    <text x="100" y="1312">29</text>
+
+    <text x="1080" y="136">1</text><text x="1080" y="178">2</text><text x="1080" y="220">3</text><text x="1080" y="262">4</text>
+    <text x="1080" y="304">5</text><text x="1080" y="346">6</text><text x="1080" y="388">7</text><text x="1080" y="430">8</text>
+    <text x="1080" y="472">9</text><text x="1080" y="514">10</text><text x="1080" y="556">11</text><text x="1080" y="598">12</text>
+    <text x="1080" y="640">13</text><text x="1080" y="682">14</text><text x="1080" y="724">15</text><text x="1080" y="766">16</text>
+    <text x="1080" y="808">17</text><text x="1080" y="850">18</text><text x="1080" y="892">19</text><text x="1080" y="934">20</text>
+    <text x="1080" y="976">21</text><text x="1080" y="1018">22</text><text x="1080" y="1060">23</text><text x="1080" y="1102">24</text>
+    <text x="1080" y="1144">25</text><text x="1080" y="1186">26</text><text x="1080" y="1228">27</text><text x="1080" y="1270">28</text>
+    <text x="1080" y="1312">29</text>
+  </g>
+
+  <!-- ===================================================================== -->
+  <!-- 4 LUBANG BAUT PCB 2x2 LUBANG (POJOK KIRI ATAS, KANAN ATAS, DLL)       -->
+  <!-- ===================================================================== -->
+  <g id="SCREW_TL">
+    <rect x="122" y="116" width="74" height="64" rx="8" fill="#1e293b" stroke="#e2e8f0" stroke-width="2" stroke-dasharray="3,2"/>
+    <circle cx="159" cy="148" r="20" fill="url(#screw-pad)" stroke="#94a3b8" stroke-width="2"/>
+    <circle cx="159" cy="148" r="8" fill="#0f172a"/>
+    <text x="159" y="196" font-size="8.5" font-weight="bold" fill="#cbd5e1" text-anchor="middle">BAUT [A-B, 1-2]</text>
+  </g>
+
+  <g id="SCREW_TR">
+    <rect x="996" y="116" width="74" height="64" rx="8" fill="#1e293b" stroke="#e2e8f0" stroke-width="2" stroke-dasharray="3,2"/>
+    <circle cx="1033" cy="148" r="20" fill="url(#screw-pad)" stroke="#94a3b8" stroke-width="2"/>
+    <circle cx="1033" cy="148" r="8" fill="#0f172a"/>
+    <text x="1033" y="196" font-size="8.5" font-weight="bold" fill="#cbd5e1" text-anchor="middle">BAUT [X-Y, 1-2]</text>
+  </g>
+
+  <g id="SCREW_BL">
+    <rect x="122" y="1252" width="74" height="64" rx="8" fill="#1e293b" stroke="#e2e8f0" stroke-width="2" stroke-dasharray="3,2"/>
+    <circle cx="159" cy="1284" r="20" fill="url(#screw-pad)" stroke="#94a3b8" stroke-width="2"/>
+    <circle cx="159" cy="1284" r="8" fill="#0f172a"/>
+    <text x="159" y="1242" font-size="8.5" font-weight="bold" fill="#cbd5e1" text-anchor="middle">BAUT [A-B, 28-29]</text>
+  </g>
+
+  <g id="SCREW_BR">
+    <rect x="996" y="1252" width="74" height="64" rx="8" fill="#1e293b" stroke="#e2e8f0" stroke-width="2" stroke-dasharray="3,2"/>
+    <circle cx="1033" cy="1284" r="20" fill="url(#screw-pad)" stroke="#94a3b8" stroke-width="2"/>
+    <circle cx="1033" cy="1284" r="8" fill="#0f172a"/>
+    <text x="1033" y="1242" font-size="8.5" font-weight="bold" fill="#cbd5e1" text-anchor="middle">BAUT [X-Y, 28-29]</text>
+  </g>
+
+  <!-- ===================================================================== -->
+  <!-- AREA SISI ATAS: SOKET JST SENSOR EKSTERNAL (Baris 1 - 2)              -->
+  <!-- ===================================================================== -->
+
+  <!-- 1. J_HX711 [JST 4-Pin] - Modul Load Cell Tiang Atas -->
+  <!-- Kolom C - F (216 s/d 330), Baris 1-2 -->
+  <g id="J_HX711">
+    <rect x="198" y="118" width="150" height="64" rx="5" fill="#1e293b" stroke="#38bdf8" stroke-width="2" filter="url(#shadow)"/>
+    <text x="273" y="140" font-size="11" font-weight="bold" fill="#38bdf8" text-anchor="middle">J_HX711 [4P]</text>
+    <text x="273" y="156" font-size="8.3" fill="#f8fafc" text-anchor="middle">1:3V3 | 2:GND | 3:DT | 4:SCK</text>
+    <text x="273" y="172" font-size="8" fill="#94a3b8" text-anchor="middle">Kolom C..F ➔ DT:D19, SCK:D18</text>
+    <circle cx="216" cy="129" r="3.5" fill="#f59e0b"/>
+    <circle cx="254" cy="129" r="3.5" fill="#64748b"/>
+    <circle cx="292" cy="129" r="3.5" fill="#3b82f6"/>
+    <circle cx="330" cy="129" r="3.5" fill="#06b6d4"/>
+  </g>
+
+  <!-- [SPACE 1 PIN: Kolom G (368) Kosong] -->
+  <rect x="360" y="118" width="16" height="64" rx="3" fill="#0f172a" opacity="0.4" stroke="#475569" stroke-dasharray="2,2"/>
+  <text x="368" y="153" font-size="8" fill="#64748b" text-anchor="middle">SPASI</text>
+
+  <!-- 2. J_HCSR [JST 4-Pin] - Sensor Ultrasonik Lantai Bawah Katrol -->
+  <!-- Kolom H - K (406 s/d 520), Baris 1-2 -->
+  <g id="J_HCSR">
+    <rect x="388" y="118" width="150" height="64" rx="5" fill="#1e293b" stroke="#f59e0b" stroke-width="2" filter="url(#shadow)"/>
+    <text x="463" y="140" font-size="11" font-weight="bold" fill="#f59e0b" text-anchor="middle">J_HCSR [4P]</text>
+    <text x="463" y="156" font-size="8.3" fill="#f8fafc" text-anchor="middle">1:VIN | 2:GND | 3:TRIG | 4:ECHO</text>
+    <text x="463" y="172" font-size="8" fill="#94a3b8" text-anchor="middle">Kolom H..K ➔ TRIG:D5, ECHO:DIV</text>
+    <circle cx="406" cy="129" r="3.5" fill="#ef4444"/>
+    <circle cx="444" cy="129" r="3.5" fill="#64748b"/>
+    <circle cx="482" cy="129" r="3.5" fill="#a855f7"/>
+    <circle cx="520" cy="129" r="3.5" fill="#ec4899"/>
+  </g>
+
+  <!-- [SPACE 1 PIN: Kolom L (558) Kosong] -->
+  <rect x="550" y="118" width="16" height="64" rx="3" fill="#0f172a" opacity="0.4" stroke="#475569" stroke-dasharray="2,2"/>
+  <text x="558" y="153" font-size="8" fill="#64748b" text-anchor="middle">SPASI</text>
+
+  <!-- 3. AREA RESISTOR PEMBAGI TEGANGAN ECHO HC-SR04 (Kolom M - O, Baris 5 - 6) -->
+  <g id="VOLTAGE_DIVIDER">
+    <rect x="578" y="286" width="112" height="64" rx="5" fill="#1e293b" stroke="#ec4899" stroke-width="1.5" stroke-dasharray="3,2"/>
+    <text x="634" y="308" font-size="10.5" font-weight="bold" fill="#ec4899" text-anchor="middle">DIVIDER ECHO</text>
+    <text x="634" y="324" font-size="8.5" fill="#cbd5e1" text-anchor="middle">R1: 1kΩ (ECHO ➔ D17)</text>
+    <text x="634" y="338" font-size="8.5" fill="#cbd5e1" text-anchor="middle">R2: 2kΩ (D17 ➔ GND)</text>
+  </g>
+
+  <!-- ===================================================================== -->
+  <!-- MODUL ESP32 DEVKIT V1 (Baris 10 s/d Baris 20, Kolom E s/d S)          -->
+  <!-- ===================================================================== -->
+  <g id="ESP32_DEVKIT">
+    <!-- Bodi PCB ESP32 (Presisi Skala Pitch 2.54mm: X: 235 s/d 855) -->
+    <rect x="235" y="472" width="620" height="495" rx="10" fill="#0b0f17" stroke="#475569" stroke-width="2.5" filter="url(#shadow)"/>
+
+    <!-- Antena PCB Emas (Sisi KANAN) -->
+    <rect x="785" y="542" width="60" height="355" rx="4" fill="#78350f" stroke="#ca8a04" stroke-width="2"/>
+    <path d="M 795 557 L 835 557 L 835 597 L 795 597 L 795 637 L 835 637 L 835 677 L 795 677 L 795 717 L 835 717 L 835 757 L 795 757 L 795 797 L 835 797 L 835 837 L 795 837" fill="none" stroke="#eab308" stroke-width="2.5"/>
+    <text x="815" y="872" font-size="10" font-weight="bold" fill="#fde047" text-anchor="middle">ANTENNA</text>
+
+    <!-- Metal Shield ESP-WROOM-32 -->
+    <rect x="450" y="542" width="310" height="355" rx="6" fill="#1e293b" stroke="#64748b" stroke-width="1.5"/>
+    <text x="605" y="712" font-size="18" font-weight="bold" fill="#f8fafc" text-anchor="middle" letter-spacing="2">ESP-WROOM-32</text>
+    <text x="605" y="739" font-size="12" fill="#94a3b8" text-anchor="middle">DOIT DevKit v1 (30-Pin Type-C)</text>
+
+    <!-- Port USB Type-C (Sisi KIRI) -->
+    <rect x="205" y="657" width="45" height="120" rx="6" fill="#94a3b8" stroke="#cbd5e1" stroke-width="2"/>
+    <rect x="210" y="677" width="20" height="80" rx="4" fill="#0f172a"/>
+    <text x="175" y="722" font-size="11" font-weight="bold" fill="#38bdf8" text-anchor="middle">PORT</text>
+    <text x="175" y="739" font-size="11" font-weight="bold" fill="#38bdf8" text-anchor="middle">TYPE-C</text>
+
+    <!-- BARIS PIN ATAS (Baris 10: Y = 514, Kolom E s/d S) -->
+    <rect x="274" y="494" width="568" height="40" rx="4" fill="#0f172a" stroke="#38bdf8" stroke-width="1.5"/>
+    <g font-size="8.5" font-weight="bold" text-anchor="middle">
+      <circle cx="292" cy="514" r="6" fill="#ef4444"/><text x="292" y="486" fill="#f87171">VIN</text>
+      <circle cx="330" cy="514" r="6" fill="#64748b"/><text x="330" y="486" fill="#94a3b8">GND</text>
+      <circle cx="368" cy="514" r="6" fill="#334155"/><text x="368" y="486" fill="#64748b">D13</text>
+      <circle cx="406" cy="514" r="6" fill="#334155"/><text x="406" y="486" fill="#64748b">D12</text>
+      <circle cx="444" cy="514" r="6" fill="#334155"/><text x="444" y="486" fill="#64748b">D14</text>
+      <circle cx="482" cy="514" r="6" fill="#334155"/><text x="482" y="486" fill="#64748b">D27</text>
+      <circle cx="520" cy="514" r="6" fill="#334155"/><text x="520" y="486" fill="#64748b">D26</text>
+      <circle cx="558" cy="514" r="6" fill="#334155"/><text x="558" y="486" fill="#64748b">D25</text>
+      <circle cx="596" cy="514" r="6" fill="#334155"/><text x="596" y="486" fill="#64748b">D33</text>
+      <circle cx="634" cy="514" r="6" fill="#334155"/><text x="634" y="486" fill="#64748b">D32</text>
+      <circle cx="672" cy="514" r="6" fill="#334155"/><text x="672" y="486" fill="#64748b">D35</text>
+      <circle cx="710" cy="514" r="6" fill="#334155"/><text x="710" y="486" fill="#64748b">D34</text>
+      <circle cx="748" cy="514" r="6" fill="#334155"/><text x="748" y="486" fill="#64748b">VN</text>
+      <circle cx="786" cy="514" r="6" fill="#334155"/><text x="786" y="486" fill="#64748b">VP</text>
+      <circle cx="824" cy="514" r="6" fill="#334155"/><text x="824" y="486" fill="#64748b">EN</text>
+    </g>
+
+    <!-- BARIS PIN BAWAH (Baris 20: Y = 934, Kolom E s/d S) -->
+    <rect x="274" y="914" width="568" height="40" rx="4" fill="#0f172a" stroke="#38bdf8" stroke-width="1.5"/>
+    <g font-size="8.5" font-weight="bold" text-anchor="middle">
+      <circle cx="292" cy="934" r="6" fill="#f59e0b"/><text x="292" y="970" fill="#f59e0b">3V3</text>
+      <circle cx="330" cy="934" r="6" fill="#64748b"/><text x="330" y="970" fill="#94a3b8">GND</text>
+      <circle cx="368" cy="934" r="6" fill="#334155"/><text x="368" y="970" fill="#64748b">D15</text>
+      <circle cx="406" cy="934" r="6" fill="#334155"/><text x="406" y="970" fill="#64748b">D2</text>
+      <circle cx="444" cy="934" r="6" fill="#10b981"/><text x="444" y="970" fill="#34d399">D4[BTN]</text>
+      <circle cx="482" cy="934" r="6" fill="#334155"/><text x="482" y="970" fill="#64748b">RX2</text>
+      <circle cx="520" cy="934" r="6" fill="#ec4899"/><text x="520" y="970" fill="#f472b6">TX2[ECH]</text>
+      <circle cx="558" cy="934" r="6" fill="#a855f7"/><text x="558" y="970" fill="#c084fc">D5[TRG]</text>
+      <circle cx="596" cy="934" r="6" fill="#06b6d4"/><text x="596" y="970" fill="#22d3ee">D18[SCK]</text>
+      <circle cx="634" cy="934" r="6" fill="#3b82f6"/><text x="634" y="970" fill="#60a5fa">D19[DT]</text>
+      <circle cx="672" cy="934" r="6" fill="#eab308"/><text x="672" y="970" fill="#facc15">D21[SDA]</text>
+      <circle cx="710" cy="934" r="6" fill="#f97316"/><text x="710" y="970" fill="#fb923c">D22[SCL]</text>
+      <circle cx="748" cy="934" r="6" fill="#334155"/><text x="748" y="970" fill="#64748b">TX0</text>
+      <circle cx="786" cy="934" r="6" fill="#334155"/><text x="786" y="970" fill="#64748b">RX0</text>
+      <circle cx="824" cy="934" r="6" fill="#334155"/><text x="824" y="970" fill="#64748b">D23</text>
+    </g>
+  </g>
+
+  <!-- ===================================================================== -->
+  <!-- AREA SISI BAWAH: SOKET JST OLED & TOMBOL (Baris 28 - 29)              -->
+  <!-- ===================================================================== -->
+
+  <!-- 1. J_OLED [JST 4-Pin] - Menuju Modul Layar OLED 0.96" I2C -->
+  <!-- Kolom C - F (216 s/d 330), Baris 28-29 -->
+  <g id="J_OLED">
+    <rect x="198" y="1252" width="150" height="64" rx="5" fill="#1e293b" stroke="#818cf8" stroke-width="2" filter="url(#shadow)"/>
+    <text x="273" y="1275" font-size="11" font-weight="bold" fill="#818cf8" text-anchor="middle">J_OLED [4P]</text>
+    <text x="273" y="1291" font-size="8.3" fill="#f8fafc" text-anchor="middle">1:GND | 2:3V3 | 3:SCL | 4:SDA</text>
+    <text x="273" y="1307" font-size="7.8" fill="#a5b4fc" text-anchor="middle">Kolom C..F ➔ SCL:D22, SDA:D21</text>
+    <circle cx="216" cy="1268" r="3.5" fill="#64748b"/>
+    <circle cx="254" cy="1268" r="3.5" fill="#f59e0b"/>
+    <circle cx="292" cy="1268" r="3.5" fill="#f97316"/>
+    <circle cx="330" cy="1268" r="3.5" fill="#eab308"/>
+  </g>
+
+  <!-- [SPACE 1 PIN: Kolom G (368) Kosong] -->
+  <rect x="360" y="1252" width="16" height="64" rx="3" fill="#0f172a" opacity="0.4" stroke="#475569" stroke-dasharray="2,2"/>
+  <text x="368" y="1287" font-size="8" fill="#64748b" text-anchor="middle">SPASI</text>
+
+  <!-- 2. J_BTN [JST 2-Pin] - Menuju Push Button Taktil -->
+  <!-- Kolom H - I (406 s/d 444), Baris 28-29 -->
+  <g id="J_BTN">
+    <rect x="388" y="1252" width="74" height="64" rx="5" fill="#1e293b" stroke="#10b981" stroke-width="2" filter="url(#shadow)"/>
+    <text x="425" y="1276" font-size="10.5" font-weight="bold" fill="#10b981" text-anchor="middle">J_BTN [2P]</text>
+    <text x="425" y="1292" font-size="8.3" fill="#f8fafc" text-anchor="middle">1:D4 | 2:GND</text>
+    <text x="425" y="1307" font-size="7.5" fill="#a7f3d0" text-anchor="middle">Push Button</text>
+    <circle cx="406" cy="1268" r="3.5" fill="#10b981"/>
+    <circle cx="444" cy="1268" r="3.5" fill="#64748b"/>
+  </g>
+
+  <!-- ===================================================================== -->
+  <!-- LEGENDA & CATATAN PERAKITAN                                           -->
+  <!-- ===================================================================== -->
+  <g transform="translate(70, 1426)" font-size="10.5" fill="#cbd5e1">
+    <rect x="0" y="0" width="1040" height="58" rx="8" fill="#1e293b" stroke="#334155" stroke-width="1.5"/>
+    <text x="15" y="19" font-weight="bold" fill="#38bdf8">ATURAN FISIK &amp; JALUR PERAKITAN:</text>
+    <text x="195" y="19">1. <tspan fill="#f87171" font-weight="bold">4 Lubang Baut 2x2</tspan> di tiap sudut (A-B &amp; X-Y) kosong bebas komponen untuk standoff baut PCB.</text>
+    <text x="195" y="34">2. <tspan fill="#facc15" font-weight="bold">Spasi 1 Lubang (2.54mm)</tspan> antar soket JST mencegah tabrakan bodi plastik saat kabel dicabut-pasang.</text>
+    <text x="195" y="49">3. <tspan fill="#38bdf8" font-weight="bold">ESP32 DevKit 30-Pin:</tspan> Dicolok pada 2x Female Header 15-pin di Baris 10 (Sisi Atas) dan Baris 20 (Sisi Bawah).</text>
+  </g>
+</svg>
