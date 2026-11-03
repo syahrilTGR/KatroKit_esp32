@@ -2,10 +2,10 @@
   KatroKit - ESP32  v2  (tanpa laptop / tanpa Serial Monitor)
   Load cell + HX711 (gaya tarik), HC-SR04 (jarak/perpindahan), OLED SSD1306 I2C 0.96"
 
-  PIN:
-    HX711   : DT  -> GPIO 19, SCK -> GPIO 18, VCC -> 3.3V, GND -> GND
-    HC-SR04 : TRIG -> GPIO 5, ECHO -> GPIO 17 (WAJIB voltage divider 1k + 2k), VCC -> 5V
-    OLED    : SDA -> GPIO 21, SCL -> GPIO 22, VCC -> 3.3V
+  PIN KONEKTOR JST-XH (PCB Matrix):
+    HX711   : Pin 1:VCC(3.3V), Pin 2:SCK(GPIO 18), Pin 3:DT(GPIO 19), Pin 4:GND
+    HC-SR04 : Pin 1:VCC(5V), Pin 2:TRIG(GPIO 5), Pin 3:ECHO(GPIO 17 via Divider 1k/2k), Pin 4:GND
+    OLED    : Pin 1:GND, Pin 2:VCC(3.3V), Pin 3:SCL(GPIO 22), Pin 4:SDA(GPIO 21)
     Tombol  : Push button eksternal box akrilik (soket JST GPIO 4)
 
   SATU TOMBOL, BEBERAPA AKSI (tahan lalu LEPAS; layar menunjukkan aksinya):

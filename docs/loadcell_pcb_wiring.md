@@ -3,7 +3,7 @@
 Dokumen ini memuat panduan tata letak (*layout*) dan penyolderan soket **JST-XH** pada **PCB Matrix / Perfboard** untuk sistem praktikum uji katrol beban (**ESP32 Type-C + HX711 Load Cell + HC-SR04 + OLED 0.96" + Tombol**).
 
 Diagram denah visual vektor resolusi penuh dapat dibuka pada:
-👉 **[docs/pcb_matrix_loadcell_layout.svg](file:///Volumes/Data%20Shared/Project/SmartCity/docs/pcb_matrix_loadcell_layout.svg)**
+👉 **[docs/pcb_matrix_loadcell_layout.svg](file:///Volumes/Data%20Shared/Project/KatroKit_esp32/docs/pcb_matrix_loadcell_layout.svg)**
 
 ---
 
@@ -27,17 +27,17 @@ Diagram denah visual vektor resolusi penuh dapat dibuka pada:
 ### A. Sisi Atas PCB Matrix (Baris 1 – 2): Sensor Eksternal
 1. **`J_HX711` — Modul Load Cell (JST 4-Pin) [Kolom C, D, E, F]**
    * Pin 1 (Kolom C) : VCC (3.3V)
-   * Pin 2 (Kolom D) : GND
+   * Pin 2 (Kolom D) : SCK (ke GPIO 18 / Kolom M Baris 20)
    * Pin 3 (Kolom E) : DT (ke GPIO 19 / Kolom N Baris 20)
-   * Pin 4 (Kolom F) : SCK (ke GPIO 18 / Kolom M Baris 20)
+   * Pin 4 (Kolom F) : GND (ke Rel Ground Sisi Atas)
 2. **`[SPASI]` — Kolom G (Kosong 1 Lubang)**
 3. **`J_HCSR` — Sensor Ultrasonik Beban (JST 4-Pin) [Kolom H, I, J, K]**
-   * Pin 1 (Kolom H) : VIN (+5V Daya Utama)
-   * Pin 2 (Kolom I) : GND
-   * Pin 3 (Kolom J) : TRIG (ke GPIO 5 / Kolom L Baris 20)
-   * Pin 4 (Kolom K) : ECHO (ke Resistor 1 kΩ pembagi tegangan)
+   * Pin 1 (Kolom H) : VCC / VIN (+5V Daya Utama)
+   * Pin 2 (Kolom I) : TRIG (ke GPIO 5 / Kolom L Baris 20)
+   * Pin 3 (Kolom J) : ECHO (ke Resistor 1 kΩ pembagi tegangan)
+   * Pin 4 (Kolom K) : GND (ke Rel Ground Sisi Atas)
 4. **`AREA R DIVIDER` — Pembagi Tegangan Echo (Kolom M – O, Baris 5 – 6):**
-   * Resistor 1 kΩ: dari Pin 4 `J_HCSR` ke GPIO 17 (Kolom K Baris 20).
+   * Resistor 1 kΩ: dari Pin 3 `J_HCSR` (Kolom J) ke GPIO 17 (Kolom K Baris 20).
    * Resistor 2 kΩ: dari GPIO 17 ke GND.
 
 ---
@@ -74,9 +74,9 @@ Diagram denah visual vektor resolusi penuh dapat dibuka pada:
 | **G - H** | **D15, D2** | *Tidak Digunakan (NC)* | Kosong |
 | **I** | **D4** | Input Push Button | Terhubung ke Pin 1 `J_BTN` (`INPUT_PULLUP`) |
 | **J** | **RX2** | *Tidak Digunakan (NC)* | Kosong |
-| **K** | **TX2 (GPIO 17)**| Input Echo Ultrasonik | Menerima sinyal Echo dari titik tengah Divider R 1k/2k |
-| **L** | **D5** | Trigger Ultrasonik | Terhubung ke Pin 3 `J_HCSR` (TRIG) |
-| **M** | **D18** | Clock HX711 | Terhubung ke Pin 4 `J_HX711` (SCK) |
+| **K** | **TX2 (GPIO 17)**| Input Echo Ultrasonik | Menerima sinyal Echo dari titik tengah Divider R 1k/2k (dari Pin 3 `J_HCSR`) |
+| **L** | **D5** | Trigger Ultrasonik | Terhubung ke Pin 2 `J_HCSR` (TRIG) |
+| **M** | **D18** | Clock HX711 | Terhubung ke Pin 2 `J_HX711` (SCK) |
 | **N** | **D19** | Data HX711 | Terhubung ke Pin 3 `J_HX711` (DT) |
 | **O** | **D21** | I2C Data (SDA) | Terhubung ke Pin 4 `J_OLED` (SDA) |
 | **P** | **D22** | I2C Clock (SCL) | Terhubung ke Pin 3 `J_OLED` (SCL) |
@@ -87,7 +87,7 @@ Diagram denah visual vektor resolusi penuh dapat dibuka pada:
 ## 4. Skematik Pembagi Tegangan (*Voltage Divider*) Echo 5V ke 3.3V
 
 ```text
-Pin ECHO J_HCSR (5V) ────[ Resistor 1 kΩ ]────┬──── Ke Pin GPIO 17 ESP32 (~3.3V)
+Pin ECHO (Pin 3 J_HCSR) (5V) ────[ Resistor 1 kΩ ]────┬──── Ke Pin GPIO 17 ESP32 (~3.3V)
                                               │
                                       [ Resistor 2 kΩ ]
                                               │

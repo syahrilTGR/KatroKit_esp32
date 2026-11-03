@@ -65,14 +65,14 @@ Sistem fisik terdiri dari:
 
 | Komponen | Pin Modul | Terhubung ke ESP32 / PCB | Keterangan |
 | :--- | :--- | :--- | :--- |
-| **HX711 (JST 4-Pin)** | VCC | 3.3V ESP32 | Tegangan logika HX711 |
-| | GND | GND Bersama | Ground bersama |
-| | DT | GPIO 19 | Data sinyal bobot load cell |
-| | SCK | GPIO 18 | Clock pulsa HX711 |
-| **HC-SR04 (JST 4-Pin)** | VCC | VIN (5V) | Suplai 5V dari USB Type-C |
-| | GND | GND Bersama | Ground bersama |
-| | TRIG | GPIO 5 | Trigger pulsa ultrasonik 10 µs |
-| | ECHO | Divider 1 kΩ & 2 kΩ -> GPIO 17 | Pembagi tegangan aman ke GPIO 3.3V |
+| **HX711 (JST 4-Pin)** | Pin 1 (VCC) | 3.3V ESP32 | Tegangan logika HX711 |
+| | Pin 2 (SCK) | GPIO 18 | Clock pulsa HX711 |
+| | Pin 3 (DT) | GPIO 19 | Data sinyal bobot load cell |
+| | Pin 4 (GND) | GND Bersama | Ground bersama |
+| **HC-SR04 (JST 4-Pin)** | Pin 1 (VCC) | VIN (5V) | Suplai 5V dari USB Type-C |
+| | Pin 2 (TRIG) | GPIO 5 | Trigger pulsa ultrasonik 10 µs |
+| | Pin 3 (ECHO) | Divider 1 kΩ & 2 kΩ -> GPIO 17 | Pembagi tegangan aman ke GPIO 3.3V |
+| | Pin 4 (GND) | GND Bersama | Ground bersama |
 | **OLED 0.96" I2C** | GND | GND Bersama | Pin 1 soket OLED |
 | | VCC | 3.3V ESP32 | Pin 2 soket OLED |
 | | SCL | GPIO 22 | Pin 3 soket OLED (I2C SCL) |
