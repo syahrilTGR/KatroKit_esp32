@@ -1,0 +1,563 @@
+/*
+  KatroKit - ESP32  v2  (tanpa laptop / tanpa Serial Monitor)
+  Load cell + HX711 (gaya tarik), HC-SR04 (jarak/perpindahan), OLED SSD1306 I2C 0.96"
+
+  PIN:
+    HX711   : DT  -> GPIO 19, SCK -> GPIO 18, VCC -> 3.3V, GND -> GND
+    HC-SR04 : TRIG -> GPIO 5, ECHO -> GPIO 17 (WAJIB voltage divider 1k + 2k), VCC -> 5V
+    OLED    : SDA -> GPIO 21, SCL -> GPIO 22, VCC -> 3.3V
+    Tombol  : Push button eksternal box akrilik (soket JST GPIO 4)
+
+  SATU TOMBOL, BEBERAPA AKSI (tahan lalu LEPAS; layar menunjukkan aksinya):
+    < 1,5 dtk   -> TARE gaya + nol-kan jarak
+    1,5 - 3 dtk -> TIMBANG W   (beban digantung langsung di load cell)
+    3 - 5 dtk   -> PILIH W     (ganti W ke preset berikutnya: 100/200/250/300/500 g)
+    > 5 dtk     -> KALIBRASI   (pakai beban referensi CAL_REF_G, default 200 g)
+
+  URUTAN PAKAI PERTAMA KALI (tanpa laptop):
+    1. Kait kosong -> tekan singkat (TARE).
+    2. Gantung beban 200 g di load cell, diam -> tahan BOOT > 5 dtk, lepas (KALIBRASI).
+    3. Kait kosong -> TARE lagi. Alat siap.
+    4. Pilih W: timbang (1,5-3 dtk) ATAU pilih preset (3-5 dtk).
+    5. Pasang beban di katrol -> TARE -> tarik.
+
+  Perintah Serial Monitor tetap ada (opsional):
+    t z r i d m | c<gram> | c0 | b<gram>
+*/
+
+#include <Arduino.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <HX711.h>
+#include <Preferences.h>
+
+// ---------- Pin ----------
+const int HX_DT   = 19;
+const int HX_SCK  = 18;
+const int TRIG    = 5;
+const int ECHO    = 17;
+const int SDA_PIN = 21;
+const int SCL_PIN = 22;
+const int BTN     = 4;   // tombol push button eksternal (soket JST GPIO 4)
+
+// ---------- Pengaturan ----------
+const float CAL_REF_G = 200.0f;                       // beban referensi kalibrasi (gram)
+const float PRESETS[] = {100, 200, 250, 300, 500};    // pilihan W lewat tombol (gram)
+const int   N_PRESETS = 5;
+
+const unsigned long T_WEIGH  = 1500;   // batas tahan: tare -> timbang
+const unsigned long T_PRESET = 3000;   // timbang -> pilih W
+const unsigned long T_CAL    = 5000;   // pilih W -> kalibrasi
+
+// ---------- OLED ----------
+const int SCREEN_W = 128;
+const int SCREEN_H = 64;
+const uint8_t OLED_ADDR = 0x3C;   // jika layar kosong, coba 0x3D
+Adafruit_SSD1306 display(SCREEN_W, SCREEN_H, &Wire, -1);
+bool oledOk = false;
+
+// ---------- HX711 ----------
+HX711 scale;
+Preferences prefs;
+const float G = 9.81f;
+float calFactor = 1.0f;
+float forceSign = -1.0f;
+
+// ---------- Filter ----------
+const int F_N = 3;
+float fBuf[F_N];
+int fIdx = 0;
+bool fFull = false;
+long lastRaw = 0;
+float force = 0, forceMax = 0, usaha = 0;
+float bebanGram = 500.0f;
+float bebanW = 0.0f;
+float km = 0.0f;
+bool isCalibrated = false;
+
+const int D_N = 3;
+float dBuf[D_N];
+int dIdx = 0;
+bool dFull = false;
+float distCm = 0;
+float distRef = 0;
+bool distValid = false;
+
+unsigned long lastDist = 0, lastDraw = 0;
+
+// ---------- Tombol ----------
+bool btnDown = false;
+unsigned long btnDownAt = 0;
+
+// ---------- Timbang beban ----------
+const float WEIGH_MIN_G    = 20.0f;
+const float WEIGH_MAX_G    = 1000.0f;
+const float WEIGH_STABLE_N = 0.08f;
+const int   SAMPLES        = 20;
+
+// ---------- Fungsi bantu ----------
+float avgBuf(float *buf, int n, bool full, int idx) {
+  int cnt = full ? n : idx;
+  if (cnt == 0) return 0;
+  float s = 0;
+  for (int i = 0; i < cnt; i++) s += buf[i];
+  return s / cnt;
+}
+
+float readDistanceCm() {
+  digitalWrite(TRIG, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG, LOW);
+  unsigned long dur = pulseIn(ECHO, HIGH, 15000UL);
+  if (dur == 0) return -1;
+  return dur * 0.0343f / 2.0f;
+}
+
+bool hxReady() {
+  if (scale.wait_ready_timeout(1000)) return true;
+  Serial.println("HX711 tidak merespons! Cek DT/SCK, VCC 3.3V dan GND.");
+  return false;
+}
+
+// Pesan 3 baris di OLED + tahan sebentar
+void showMsg(const char *l1, const char *l2 = "", const char *l3 = "", int holdMs = 0) {
+  if (oledOk) {
+    display.clearDisplay();
+    display.setTextColor(SSD1306_WHITE);
+    display.setTextSize(1);
+    display.setCursor(0, 8);  display.print(l1);
+    display.setCursor(0, 26); display.print(l2);
+    display.setCursor(0, 44); display.print(l3);
+    display.display();
+  }
+  if (holdMs > 0) delay(holdMs);
+}
+
+// Ambil SAMPLES bacaan mentah (sudah dikurangi tare). true jika cukup data.
+bool sampleRaw(float &mean, float &spread) {
+  float sum = 0, mn = 1e12f, mx = -1e12f;
+  int got = 0;
+  unsigned long t0 = millis();
+  while (got < SAMPLES && millis() - t0 < 4000) {
+    if (scale.is_ready()) {
+      float r = (float)scale.get_value(1);
+      sum += r;
+      if (r < mn) mn = r;
+      if (r > mx) mx = r;
+      got++;
+    }
+  }
+  if (got < SAMPLES) return false;
+  mean = sum / got;
+  spread = mx - mn;
+  return true;
+}
+
+void tareForce() {
+  if (!hxReady()) return;
+  scale.tare(10);
+  fIdx = 0; fFull = false;
+  force = 0; forceMax = 0; km = 0; usaha = 0;
+  Serial.println("Tare selesai.");
+}
+
+void zeroDistance() {
+  if (distValid) {
+    distRef = distCm;
+    Serial.print("Jarak awal diset: ");
+    Serial.print(distRef, 1);
+    Serial.println(" cm");
+  }
+}
+
+void resetCalibration() {
+  calFactor = 1.0f;
+  prefs.putFloat("cal", 1.0f);
+  isCalibrated = false;
+  Serial.println("Kalibrasi di-reset (!CAL).");
+}
+
+// Kalibrasi dengan beban referensi yang SEDANG menggantung di load cell
+// (load cell sudah di-tare saat kosong).
+void calibrate(float grams) {
+  if (grams > 1000.0f) {
+    Serial.println("Kapasitas load cell 1 kg! Pakai beban referensi <= 1000 g.");
+    showMsg("MELEBIHI 1 KG", "Pakai beban <= 1kg", "", 1800);
+    return;
+  }
+  if (!hxReady()) return;
+
+  char b1[24];
+  snprintf(b1, sizeof(b1), "Referensi %.0f g", grams);
+  showMsg("KALIBRASI...", b1, "Jaga beban diam");
+  Serial.println("Kalibrasi dimulai... beban harus menggantung diam.");
+  delay(800);
+
+  float raw, spread;
+  if (!sampleRaw(raw, spread)) {
+    showMsg("GAGAL", "HX711 lambat/putus", "", 1800);
+    return;
+  }
+  if (fabs(raw) < 50.0f) {
+    Serial.println("Gagal: tidak ada beban terdeteksi. Tare dulu saat kosong, lalu gantung beban.");
+    showMsg("BEBAN TAK TERBACA", "TARE saat kosong,", "lalu gantung beban", 2200);
+    return;
+  }
+  if (spread > 0.05f * fabs(raw)) {
+    Serial.println("Gagal: beban belum diam.");
+    showMsg("BEBAN GOYANG", "Tunggu diam lalu", "ulangi kalibrasi", 2000);
+    return;
+  }
+
+  float newton = (grams / 1000.0f) * G;
+  forceSign = (raw < 0) ? -1.0f : 1.0f;
+  prefs.putFloat("sign", forceSign);
+  calFactor = fabs(raw) / newton;
+  prefs.putFloat("cal", calFactor);
+  fIdx = 0; fFull = false; forceMax = 0;
+  isCalibrated = true;
+
+  Serial.println("=== KALIBRASI SUKSES ===");
+  Serial.print("Massa referensi: "); Serial.print(grams, 1); Serial.println(" g");
+  Serial.print("Nilai RAW ADC  : "); Serial.println(raw, 0);
+  Serial.print("Faktor Skala   : "); Serial.println(calFactor, 2);
+  Serial.print("Arah Gaya      : "); Serial.println(forceSign > 0 ? "Normal (+)" : "Dibalik (-)");
+
+  showMsg("KALIBRASI OK", b1, "Kait kosong -> TARE", 2500);
+}
+
+void setBeban(float grams) {
+  bebanGram = grams;
+  bebanW = (bebanGram / 1000.0f) * G;
+  prefs.putFloat("beban", bebanGram);
+}
+
+// Timbang beban yang menggantung langsung di load cell -> simpan sebagai W
+void weighLoad() {
+  if (!isCalibrated) {
+    Serial.println("Timbang gagal: belum dikalibrasi.");
+    showMsg("BELUM KALIBRASI", "Tahan BOOT >5 dtk", "dgn beban 200 g", 2500);
+    return;
+  }
+  if (!hxReady()) return;
+
+  showMsg("Menimbang beban...", "Jaga beban diam");
+  delay(800);
+
+  float raw, spread;
+  if (!sampleRaw(raw, spread)) {
+    showMsg("GAGAL", "HX711 lambat/putus", "", 1800);
+    return;
+  }
+  float newton = forceSign * (raw / calFactor);
+  float grams = (newton / G) * 1000.0f;
+  float spreadN = spread / calFactor;
+
+  if (spreadN > WEIGH_STABLE_N) {
+    showMsg("BEBAN GOYANG", "Tunggu diam lalu", "ulangi timbang", 2000);
+    return;
+  }
+  if (grams < WEIGH_MIN_G) {
+    Serial.print("Terbaca hanya "); Serial.print(grams, 0); Serial.println(" g");
+    char b2[24];
+    snprintf(b2, sizeof(b2), "Terbaca %.0f g", grams);
+    showMsg("BEBAN TAK TERBACA", b2, "Tare saat kosong?", 2500);
+    return;
+  }
+  if (grams > WEIGH_MAX_G) {
+    showMsg("MELEBIHI 1 KG", "Turunkan beban!", "", 1800);
+    return;
+  }
+
+  setBeban(grams);
+  char b1[24], b2[24];
+  snprintf(b1, sizeof(b1), "W = %.0f g", bebanGram);
+  snprintf(b2, sizeof(b2), "= %.2f N", bebanW);
+  Serial.print("W terbaca: "); Serial.print(bebanGram, 0); Serial.println(" g (tersimpan)");
+  showMsg("BEBAN TERSIMPAN", b1, b2, 2200);
+}
+
+// Ganti W ke preset berikutnya (untuk kasus beban tidak bisa digantung di load cell)
+void nextPreset() {
+  int cur = -1;
+  for (int i = 0; i < N_PRESETS; i++) if (fabs(PRESETS[i] - bebanGram) < 1.0f) cur = i;
+  int nxt = (cur + 1) % N_PRESETS;
+  setBeban(PRESETS[nxt]);
+  char b1[24], b2[24];
+  snprintf(b1, sizeof(b1), "W = %.0f g", bebanGram);
+  snprintf(b2, sizeof(b2), "= %.2f N", bebanW);
+  Serial.print("W preset: "); Serial.print(bebanGram, 0); Serial.println(" g");
+  showMsg("W DIGANTI (PRESET)", b1, b2, 1500);
+}
+
+void printDiagnostics() {
+  if (!hxReady()) return;
+  float rawVal = scale.get_value(5);
+  Serial.println("--- DIAGNOSTIK SENSOR HX711 ---");
+  Serial.print("Nilai RAW ADC saat ini : "); Serial.println(rawVal, 0);
+  Serial.print("Faktor Kalibrasi       : "); Serial.println(calFactor, 2);
+  Serial.print("Status Kalibrasi       : "); Serial.println(isCalibrated ? "TERKALIBRASI (OK)" : "BELUM (!CAL)");
+  Serial.print("Arah Tanda (Sign)      : "); Serial.println(forceSign > 0 ? "+1.0 (Normal)" : "-1.0 (Inverted)");
+  Serial.print("Pembacaan Gaya (N)     : "); Serial.println(force, 2);
+  Serial.print("Beban W                : "); Serial.print(bebanGram, 0); Serial.println(" g");
+  Serial.println("-------------------------------");
+}
+
+void handleSerial() {
+  if (!Serial.available()) return;
+  String s = Serial.readStringUntil('\n');
+  s.trim();
+  s.toLowerCase();
+  if (s.length() == 0) return;
+  char c = s.charAt(0);
+  String arg = s.substring(1);
+
+  if (c == 't') tareForce();
+  else if (c == 'z') zeroDistance();
+  else if (c == 'r') { forceMax = 0; Serial.println("Maks direset."); }
+  else if (c == 'i') {
+    forceSign = -forceSign;
+    prefs.putFloat("sign", forceSign);
+    Serial.println(forceSign > 0 ? "Arah: Normal" : "Arah: Dibalik");
+  }
+  else if (c == 'd') printDiagnostics();
+  else if (c == 'm') weighLoad();
+  else if (c == 'c') {
+    if (arg == "0") resetCalibration();
+    else if (arg.toFloat() > 0) calibrate(arg.toFloat());
+    else Serial.println("Format salah. Contoh: c200 atau c0");
+  }
+  else if (c == 'b' || c == 'w') {
+    float bg = arg.toFloat();
+    if (bg > 0) {
+      setBeban(bg);
+      Serial.print("Beban W diatur: "); Serial.print(bebanGram, 1); Serial.println(" g");
+    } else {
+      Serial.println("Massa beban tidak valid. Contoh: b500");
+    }
+  }
+  else Serial.println("Perintah: t | z | r | i | d | m | c<gram> | c0 | b<gram>");
+}
+
+// Layar saat tombol ditahan: tunjukkan aksi yang terjadi jika dilepas sekarang
+void drawHold(unsigned long held) {
+  if (!oledOk) return;
+  const char *act;
+  if (held < T_WEIGH)       act = "TARE";
+  else if (held < T_PRESET) act = "TIMBANG W";
+  else if (held < T_CAL)    act = "PILIH W";
+  else                      act = "KALIBRASI";
+
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+  display.setTextSize(1);
+  display.setCursor(0, 0);  display.print("Tombol ditahan");
+  display.setCursor(0, 12); display.print("Lepas sekarang =");
+  display.setTextSize(2);
+  display.setCursor(0, 26); display.print(act);
+  display.setTextSize(1);
+  display.setCursor(0, 56); display.print(held / 1000.0f, 1); display.print(" dtk");
+  unsigned long h = held > T_CAL ? T_CAL : held;
+  int w = (int)((h * 128UL) / T_CAL);
+  display.fillRect(0, 48, w, 5, SSD1306_WHITE);
+  display.display();
+}
+
+void draw() {
+  if (!oledOk) return;
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+
+  // === ZONA ATAS: F (Kuasa) & W (Beban) ===
+  display.setTextSize(1);
+  display.setCursor(2, 0);
+  display.print("F(Kuasa)");
+  display.setCursor(68, 0);
+  display.print("W(Beban)");
+
+  display.setCursor(2, 10);
+  if (!isCalibrated) {
+    display.print("!CAL");
+  } else if (fabs(force) > 9.99f) {
+    display.print("OVLD");
+  } else {
+    display.print(force, 2);
+    display.print("N");
+  }
+
+  display.setCursor(68, 10);
+  display.print(bebanW, 2);
+  display.print("N");
+
+  display.drawFastHLine(0, 20, 128, SSD1306_WHITE);
+
+  // === ZONA TENGAH: KM = W / F ===
+  display.setTextSize(1);
+  display.setCursor(34, 23);
+  display.print("KM = W / F");
+
+  display.setTextSize(2);
+  display.setCursor(40, 33);
+  if (!isCalibrated || force < 0.30f) {
+    display.print("---");
+  } else if (km >= 10.0f) {
+    display.print(">10");
+  } else {
+    display.print(km, 2);
+  }
+
+  display.drawFastHLine(0, 50, 128, SSD1306_WHITE);
+
+  // === ZONA BAWAH: d, s, U ===
+  display.setTextSize(1);
+  display.setCursor(0, 54);
+  display.print("d:");
+  if (distValid) { display.print(distCm, 0); display.print("cm"); }
+  else display.print("---");
+
+  display.setCursor(43, 54);
+  display.print("s:");
+  if (distValid) { display.print(fabs(distCm - distRef), 0); display.print("cm"); }
+  else display.print("---");
+
+  display.setCursor(86, 54);
+  display.print("U:");
+  if (isCalibrated) {
+    if (usaha > 99.9f) display.print(">99J");
+    else { display.print(usaha, 1); display.print("J"); }
+  } else {
+    display.print("---");
+  }
+
+  display.display();
+}
+
+void setup() {
+  Serial.begin(115200);
+  Serial.setTimeout(50);
+  pinMode(TRIG, OUTPUT);
+  pinMode(ECHO, INPUT);
+  pinMode(BTN, INPUT_PULLUP);
+
+  Wire.begin(SDA_PIN, SCL_PIN);
+  oledOk = display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);
+  if (!oledOk) {
+    Serial.println("OLED tidak terdeteksi! Cek kabel SDA/SCL dan alamat I2C (0x3C/0x3D).");
+  } else {
+    display.clearDisplay();
+    display.setTextColor(SSD1306_WHITE);
+    display.setTextSize(2);
+    display.setCursor(10, 10);
+    display.println("KatroKit");
+    display.setTextSize(1);
+    display.setCursor(10, 40);
+    display.println("Jangan sentuh tali...");
+    display.display();
+  }
+
+  prefs.begin("katrokit", false);
+  calFactor = prefs.getFloat("cal", 1.0f);
+  forceSign = prefs.getFloat("sign", -1.0f);
+  bebanGram = prefs.getFloat("beban", 500.0f);
+  bebanW = (bebanGram / 1000.0f) * G;
+
+  scale.begin(HX_DT, HX_SCK);
+  delay(1500);
+  if (scale.wait_ready_timeout(2000)) {
+    scale.tare(15);
+  } else {
+    Serial.println("HX711 tidak merespons! Cek DT/SCK, VCC 3.3V dan GND.");
+  }
+
+  isCalibrated = (calFactor != 1.0f);
+  if (!isCalibrated) {
+    showMsg("BELUM KALIBRASI", "Gantung 200 g,", "tahan BOOT >5 dtk", 3000);
+  }
+
+  for (int i = 0; i < 5; i++) {
+    float d = readDistanceCm();
+    if (d > 2.0f && d < 250.0f) { distCm = d; distValid = true; }
+    delay(60);
+  }
+  if (distValid) distRef = distCm;
+}
+
+void loop() {
+  handleSerial();
+
+  // Gaya
+  if (scale.is_ready()) {
+    lastRaw = scale.get_value(1);
+    float fInstant = forceSign * (lastRaw / calFactor);
+    fBuf[fIdx] = fInstant;
+    fIdx++;
+    if (fIdx >= F_N) { fIdx = 0; fFull = true; }
+    force = avgBuf(fBuf, F_N, fFull, fIdx);
+    if (fabs(force) < 0.05f) force = 0.0f;
+    if (force > forceMax) forceMax = force;
+
+    float disp_m = fabs(distCm - distRef) / 100.0f;
+    usaha = (force > 0 ? force : 0) * disp_m;
+
+    if (isCalibrated && force >= 0.30f) {
+      km = bebanW / force;
+      if (km > 10.0f) km = 10.0f;
+    } else {
+      km = 0.0f;
+    }
+  }
+
+  // Jarak tiap 100 ms
+  if (millis() - lastDist >= 100) {
+    lastDist = millis();
+    float d = readDistanceCm();
+    if (d > 2.0f && d < 250.0f) {
+      dBuf[dIdx] = d;
+      dIdx++;
+      if (dIdx >= D_N) { dIdx = 0; dFull = true; }
+      distCm = avgBuf(dBuf, D_N, dFull, dIdx);
+      distValid = true;
+    }
+  }
+
+  // Tombol: aksi ditentukan lama tahan, dijalankan saat DILEPAS
+  bool pressed = (digitalRead(BTN) == LOW);
+  if (pressed && !btnDown) {
+    btnDown = true;
+    btnDownAt = millis();
+  } else if (!pressed && btnDown) {
+    btnDown = false;
+    unsigned long held = millis() - btnDownAt;
+    if (held >= 50) {                      // abaikan bouncing
+      if (held < T_WEIGH) {
+        tareForce();
+        zeroDistance();
+        showMsg("TARE OK", "Gaya & jarak = 0", "", 700);
+      }
+      else if (held < T_PRESET) weighLoad();
+      else if (held < T_CAL)    nextPreset();
+      else                      calibrate(CAL_REF_G);
+    }
+    lastDraw = millis();
+  }
+
+  // OLED + Serial Plotter tiap 100 ms
+  if (millis() - lastDraw >= 100) {
+    lastDraw = millis();
+    if (btnDown) drawHold(millis() - btnDownAt);
+    else draw();
+    Serial.print("Gaya_N:");
+    Serial.print(force, 2);
+    Serial.print(",RAW:");
+    Serial.print(lastRaw);
+    Serial.print(",KM:");
+    Serial.print(km, 2);
+    Serial.print(",Jarak_cm:");
+    Serial.print(distCm, 1);
+    Serial.print(",Pindah_cm:");
+    Serial.println(distCm - distRef, 1);
+  }
+}
