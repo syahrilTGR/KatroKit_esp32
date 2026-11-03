@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="118mm"
+     height="86mm"
+     viewBox="0 0 118 86"
+     version="1.1">
+  <defs>
+    <style>
+      .cut-line { stroke: #ff0000; stroke-width: 0.1; fill: none; }
+    </style>
+  </defs>
+
+  <!-- =================================================================== -->
+  <!-- BARIS 1: TUTUP ATAS & ALAS BAWAH (52 x 28 mm)                       -->
+  <!-- =================================================================== -->
+
+  <!-- 1. PANEL TUTUP ATAS (2 Lubang Transducer d=16mm, Pitch C-to-C=26mm) -->
+  <g id="PANEL_TUTUP_ATAS">
+    <rect x="4" y="4" width="52" height="28" rx="0.5" class="cut-line" />
+    <circle cx="17" cy="18" r="8" class="cut-line" />
+    <circle cx="43" cy="18" r="8" class="cut-line" />
+  </g>
+
+  <!-- 2. PANEL ALAS BAWAH (Polos Rata Solid) -->
+  <g id="PANEL_ALAS_BAWAH">
+    <rect x="60" y="4" width="52" height="28" rx="0.5" class="cut-line" />
+  </g>
+
+  <!-- =================================================================== -->
+  <!-- BARIS 2: DINDING DEPAN & DINDING BELAKANG (52 x 20 mm)              -->
+  <!-- =================================================================== -->
+
+  <!-- 3. PANEL DINDING DEPAN (Polos Rata Solid) -->
+  <g id="PANEL_DINDING_DEPAN">
+    <rect x="4" y="36" width="52" height="20" rx="0.5" class="cut-line" />
+  </g>
+
+  <!-- 4. PANEL DINDING BELAKANG (U-Slot Kabel 16 x 10 mm di Tengah) -->
+  <g id="PANEL_DINDING_BELAKANG">
+    <path d="M 60 36
+             L 78 36
+             L 78 46
+             L 94 46
+             L 94 36
+             L 112 36
+             L 112 56
+             L 60 56
+             Z" class="cut-line" />
+  </g>
+
+  <!-- =================================================================== -->
+  <!-- BARIS 3: DINDING SAMPING KIRI & KANAN (22 x 20 mm)                  -->
+  <!-- =================================================================== -->
+
+  <!-- 5. PANEL DINDING SAMPING KIRI -->
+  <g id="PANEL_DINDING_KIRI">
+    <rect x="4" y="60" width="22" height="20" rx="0.5" class="cut-line" />
+  </g>
+
+  <!-- 6. PANEL DINDING SAMPING KANAN -->
+  <g id="PANEL_DINDING_KANAN">
+    <rect x="30" y="60" width="22" height="20" rx="0.5" class="cut-line" />
+  </g>
+
+</svg>
