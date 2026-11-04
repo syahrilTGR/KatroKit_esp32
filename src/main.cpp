@@ -605,6 +605,10 @@ void draw() {
   display.display();
 }
 
+// ---------- WiFiManager & ArduinoOTA (Non-Blocking) ----------
+WiFiManager wm;
+bool otaStarted = false;
+
 // Setup dan Handler ArduinoOTA
 void setupOTA() {
   ArduinoOTA.setHostname("katrokit-esp32");
@@ -674,26 +678,25 @@ void setupOTA() {
 }
 
 void initWiFiAndOTA() {
-  WiFiManager wm;
-  wm.setConfigPortalTimeout(60); // Timeout 60 detik agar tidak freeze saat offline
-  wm.setConnectTimeout(10);
+  wm.setConfigPortalBlocking(false); // Non-blocking: loop utama tidak akan pernah freeze!
+  wm.setConnectTimeout(15);          // Timeout percobaan koneksi ke WiFi: 15 detik
 
   if (oledOk) {
     display.clearDisplay();
     display.setTextColor(SSD1306_WHITE);
     display.setTextSize(1);
-    display.setCursor(0, 5);
-    display.println("Menghubungkan WiFi...");
-    display.setCursor(0, 22);
-    display.println("Jika belum connect:");
-    display.setCursor(0, 36);
-    display.println("Buka WiFi HP / Laptop");
+    display.setCursor(0, 8);
+    display.println("Koneksi WiFi (15s)...");
+    display.setCursor(0, 26);
+    display.println("Jika tanpa WiFi");
+    display.setCursor(0, 38);
+    display.println("Loop sensor lgsg jalan");
     display.setCursor(0, 50);
     display.println("AP: KatroKit-AP");
     display.display();
   }
 
-  Serial.println("[WIFI] Memulai WiFiManager...");
+  Serial.println("[WIFI] Memulai koneksi WiFi (timeout 15s)...");
   bool connected = wm.autoConnect("KatroKit-AP");
 
   if (connected) {
@@ -702,6 +705,7 @@ void initWiFiAndOTA() {
     Serial.println(WiFi.localIP());
 
     setupOTA();
+    otaStarted = true;
 
     if (oledOk) {
       display.clearDisplay();
@@ -715,12 +719,13 @@ void initWiFiAndOTA() {
       display.setCursor(0, 48);
       display.println(WiFi.localIP().toString());
       display.display();
-      delay(2000);
+      delay(1500);
     }
   } else {
-    Serial.println("[WIFI] Timeout! Melanjutkan dalam mode Offline.");
+    Serial.println("[WIFI] Belum terkoneksi dalam 15s.");
+    Serial.println("[WIFI] Hotspot 'KatroKit-AP' aktif di background (non-blocking).");
     if (oledOk) {
-      showMsg("WIFI OFFLINE", "Mode offline aktif", "KatroKit Siap!", 1500);
+      showMsg("HOTSPOT AKTIF (BG)", "SSID: KatroKit-AP", "Loop sensor siap!", 1500);
     }
   }
 }
@@ -793,7 +798,16 @@ void setup() {
 }
 
 void loop() {
+  // Layani background task WiFiManager & OTA (Non-blocking)
+  wm.process();
+
   if (WiFi.status() == WL_CONNECTED) {
+    if (!otaStarted) {
+      setupOTA();
+      otaStarted = true;
+      Serial.print("[WIFI] Terhubung via Portal! IP: ");
+      Serial.println(WiFi.localIP());
+    }
     ArduinoOTA.handle();
   }
 
