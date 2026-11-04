@@ -60,9 +60,21 @@ const uint8_t OLED_ADDR = 0x3C;   // jika layar kosong, coba 0x3D
 Adafruit_SSD1306 display(SCREEN_W, SCREEN_H, &Wire, -1);
 bool oledOk = false;
 
-// ---------- WiFiManager & ArduinoOTA (Non-Blocking) ----------
+// ---------- WiFiManager & ArduinoOTA (Non-Blocking Asinkron) ----------
 WiFiManager wm;
 bool otaStarted = false;
+bool apStarted = false;
+
+enum WiFiState {
+  WIFI_CONNECTING,      // Sedang mencoba koneksi router di background (max 15 detik)
+  WIFI_HOTSPOT_NOTIF,   // Hotspot aktif, tampilkan notifikasi di OLED selama 1 detik
+  WIFI_CONNECTED_NOTIF, // WiFi terhubung, tampilkan notifikasi di OLED selama 1 detik
+  WIFI_RUNNING          // Hotspot / WiFi aktif di background, OLED normal
+};
+
+WiFiState wifiState = WIFI_CONNECTING;
+unsigned long wifiStartTime = 0;
+unsigned long wifiNotifStart = 0;
 
 // ---------- HX711 & Kalibrasi ----------
 HX711 scale;
@@ -855,57 +867,13 @@ void setupOTA() {
   Serial.println("[OTA] ArduinoOTA siap. Hostname: katrokit-esp32.local");
 }
 
-void initWiFiAndOTA() {
-  wm.setConfigPortalBlocking(false); // Non-blocking: loop utama tidak akan pernah freeze!
-  wm.setConnectTimeout(15);          // Timeout percobaan koneksi ke WiFi: 15 detik
-
-  if (oledOk) {
-    display.clearDisplay();
-    display.setTextColor(SSD1306_WHITE);
-    display.setTextSize(1);
-    display.setCursor(0, 8);
-    display.println("Koneksi WiFi (15s)...");
-    display.setCursor(0, 26);
-    display.println("Jika tanpa WiFi");
-    display.setCursor(0, 38);
-    display.println("Loop sensor lgsg jalan");
-    display.setCursor(0, 50);
-    display.println("AP: KatroKit-AP");
-    display.display();
-  }
-
-  Serial.println("[WIFI] Memulai koneksi WiFi (timeout 15s)...");
-  bool connected = wm.autoConnect("KatroKit-AP");
-
-  if (connected) {
-    Serial.println("[WIFI] Berhasil terhubung ke jaringan!");
-    Serial.print("[WIFI] IP Address: ");
-    Serial.println(WiFi.localIP());
-
-    setupOTA();
-    otaStarted = true;
-
-    if (oledOk) {
-      display.clearDisplay();
-      display.setTextSize(1);
-      display.setCursor(0, 5);
-      display.println("WiFi Terhubung!");
-      display.setCursor(0, 20);
-      display.println(WiFi.SSID());
-      display.setCursor(0, 36);
-      display.println("IP:");
-      display.setCursor(0, 48);
-      display.println(WiFi.localIP().toString());
-      display.display();
-      delay(1500);
-    }
-  } else {
-    Serial.println("[WIFI] Belum terkoneksi dalam 15s.");
-    Serial.println("[WIFI] Hotspot 'KatroKit-AP' aktif di background (non-blocking).");
-    if (oledOk) {
-      showMsg("HOTSPOT AKTIF (BG)", "SSID: KatroKit-AP", "Loop sensor siap!", 1500);
-    }
-  }
+void initWiFiAsync() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(); // Non-blocking: hardware ESP32 mencoba koneksi di background FreeRTOS
+  wifiStartTime = millis();
+  wifiState = WIFI_CONNECTING;
+  apStarted = false;
+  Serial.println("[WIFI] Memulai pencarian WiFi tersimpan di background (timeout 15s)...");
 }
 
 void setup() {
@@ -919,12 +887,7 @@ void setup() {
   oledOk = display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);
   if (!oledOk) {
     Serial.println("OLED tidak terdeteksi! Cek kabel SDA/SCL dan alamat I2C (0x3C/0x3D).");
-  }
-
-  // Inisialisasi WiFi & ArduinoOTA
-  initWiFiAndOTA();
-
-  if (oledOk) {
+  } else {
     display.clearDisplay();
     display.setTextColor(SSD1306_WHITE);
     display.setTextSize(2);
@@ -935,6 +898,9 @@ void setup() {
     display.println("Jangan sentuh tali...");
     display.display();
   }
+
+  // Mulai pencarian WiFi di background secara asinkron (0 ms blocking)
+  initWiFiAsync();
 
   prefs.begin("katrokit", false);
   calFactor = prefs.getFloat("cal", 1.0f);
@@ -964,7 +930,7 @@ void setup() {
   }
 
   if (!isCalibrated) {
-    showMsg("BELUM KALIBRASI", "Ketik m di Serial", "utk kalibrasi", 3000);
+    showMsg("BELUM KALIBRASI", "Tahan D4 >5 dtk", "utk kalibrasi", 2000);
   }
 
   for (int i = 0; i < 5; i++) {
@@ -976,17 +942,50 @@ void setup() {
 }
 
 void loop() {
-  // Layani background task WiFiManager & OTA (Non-blocking)
-  wm.process();
-
-  if (WiFi.status() == WL_CONNECTED) {
-    if (!otaStarted) {
+  // --- MANAJEMEN WIFI & HOTSPOT ASINKRON (NON-BLOCKING) ---
+  if (wifiState == WIFI_CONNECTING) {
+    if (WiFi.status() == WL_CONNECTED) {
       setupOTA();
       otaStarted = true;
-      Serial.print("[WIFI] Terhubung via Portal! IP: ");
+      wifiState = WIFI_CONNECTED_NOTIF;
+      wifiNotifStart = millis();
+      Serial.print("[WIFI] Terhubung ke WiFi! IP: ");
       Serial.println(WiFi.localIP());
+    } else if (millis() - wifiStartTime >= 15000) {
+      // 15 detik timeout: Aktifkan Hotspot AP di background
+      wm.setConfigPortalBlocking(false);
+      wm.startConfigPortal("KatroKit-AP");
+      apStarted = true;
+      wifiState = WIFI_HOTSPOT_NOTIF;
+      wifiNotifStart = millis();
+      Serial.println("[WIFI] Timeout 15s tercapai. Hotspot 'KatroKit-AP' aktif di background.");
     }
-    ArduinoOTA.handle();
+  } else if (wifiState == WIFI_HOTSPOT_NOTIF) {
+    if (apStarted) wm.process();
+    if (millis() - wifiNotifStart >= 1000) {
+      wifiState = WIFI_RUNNING;
+      lastDraw = 0; // Segera redraw tampilan utama
+    }
+  } else if (wifiState == WIFI_CONNECTED_NOTIF) {
+    if (millis() - wifiNotifStart >= 1000) {
+      wifiState = WIFI_RUNNING;
+      lastDraw = 0; // Segera redraw tampilan utama
+    }
+  } else { // WIFI_RUNNING
+    if (apStarted) {
+      wm.process(); // Layani web server portal di background
+    }
+    if (WiFi.status() == WL_CONNECTED) {
+      if (!otaStarted) {
+        setupOTA();
+        otaStarted = true;
+        wifiState = WIFI_CONNECTED_NOTIF;
+        wifiNotifStart = millis();
+        Serial.print("[WIFI] Terhubung via Portal! IP: ");
+        Serial.println(WiFi.localIP());
+      }
+      ArduinoOTA.handle();
+    }
   }
 
   handleSerial();
@@ -1048,7 +1047,37 @@ void loop() {
   }
 
   // OLED + Serial Plotter tiap 100 ms
-  if (millis() - lastDraw >= 100) {
+  if (wifiState == WIFI_HOTSPOT_NOTIF) {
+    // Popup notifikasi Hotspot aktif tepat selama 1 detik
+    if (oledOk) {
+      display.clearDisplay();
+      display.setTextColor(SSD1306_WHITE);
+      display.setTextSize(1);
+      display.setCursor(18, 6);
+      display.println("HOTSPOT AKTIF");
+      display.drawFastHLine(0, 18, 128, SSD1306_WHITE);
+      display.setCursor(0, 26);
+      display.println("AP: KatroKit-AP");
+      display.setCursor(0, 42);
+      display.println("IP: 192.168.4.1");
+      display.display();
+    }
+  } else if (wifiState == WIFI_CONNECTED_NOTIF) {
+    // Popup notifikasi WiFi terhubung tepat selama 1 detik
+    if (oledOk) {
+      display.clearDisplay();
+      display.setTextColor(SSD1306_WHITE);
+      display.setTextSize(1);
+      display.setCursor(14, 6);
+      display.println("WIFI TERHUBUNG");
+      display.drawFastHLine(0, 18, 128, SSD1306_WHITE);
+      display.setCursor(0, 26);
+      display.println(WiFi.SSID());
+      display.setCursor(0, 42);
+      display.println(WiFi.localIP().toString());
+      display.display();
+    }
+  } else if (millis() - lastDraw >= 100) {
     lastDraw = millis();
     if (btnDown) drawHold(millis() - btnDownAt);
     else draw();
