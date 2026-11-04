@@ -161,21 +161,25 @@ void setupOTA() {
   });
 
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    static int lastPct = -1;
     unsigned int pct = progress / (total / 100);
-    Serial.printf("[OTA] Progress: %u%%\r", pct);
-    if (oledOk) {
-      display.clearDisplay();
-      display.setTextSize(1);
-      display.setCursor(0, 10);
-      display.println("UPDATING FIRMWARE");
-      display.setCursor(45, 26);
-      display.setTextSize(2);
-      display.printf("%d%%", pct);
-      display.setTextSize(1);
-      int w = (pct * 128) / 100;
-      display.drawRect(0, 50, 128, 10, SSD1306_WHITE);
-      display.fillRect(2, 52, (w > 4 ? w - 4 : 0), 6, SSD1306_WHITE);
-      display.display();
+    if ((int)pct != lastPct && (pct % 5 == 0 || pct == 100)) {
+      lastPct = (int)pct;
+      Serial.printf("[OTA] Progress: %u%%\n", pct);
+      if (oledOk) {
+        display.clearDisplay();
+        display.setTextSize(1);
+        display.setCursor(0, 10);
+        display.println("UPDATING FIRMWARE");
+        display.setCursor(45, 26);
+        display.setTextSize(2);
+        display.printf("%d%%", pct);
+        display.setTextSize(1);
+        int w = (pct * 128) / 100;
+        display.drawRect(0, 50, 128, 10, SSD1306_WHITE);
+        display.fillRect(2, 52, (w > 4 ? w - 4 : 0), 6, SSD1306_WHITE);
+        display.display();
+      }
     }
   });
 

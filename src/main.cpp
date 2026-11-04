@@ -91,6 +91,11 @@ PubSubClient mqttClient(espClient);
 unsigned long lastMqttReconnect = 0;
 unsigned long lastMqttPublish   = 0;
 
+// Flag sinkronisasi antar-Core (Thread-safe)
+volatile bool remoteTareReq     = false;
+volatile bool remoteResetMaxReq = false;
+TaskHandle_t mqttTaskHandle     = NULL;
+
 // ---------- HX711 & Kalibrasi ----------
 HX711 scale;
 Preferences prefs;
@@ -851,21 +856,25 @@ void setupOTA() {
   });
 
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    unsigned int pct = progress / (total / 100);
-    Serial.printf("[OTA] Progress: %u%%\r", pct);
-    if (oledOk) {
-      display.clearDisplay();
-      display.setTextSize(1);
-      display.setCursor(0, 10);
-      display.println("UPDATING FIRMWARE");
-      display.setCursor(45, 26);
-      display.setTextSize(2);
-      display.printf("%d%%", pct);
-      display.setTextSize(1);
-      int w = (pct * 128) / 100;
-      display.drawRect(0, 50, 128, 10, SSD1306_WHITE);
-      display.fillRect(2, 52, (w > 4 ? w - 4 : 0), 6, SSD1306_WHITE);
-      display.display();
+    static int lastPct = -1;
+    unsigned int pct = (total > 0) ? (progress / (total / 100)) : 0;
+    if ((int)pct != lastPct && (pct % 5 == 0 || pct == 100)) {
+      lastPct = pct;
+      Serial.printf("[OTA] Progress: %u%%\r\n", pct);
+      if (oledOk) {
+        display.clearDisplay();
+        display.setTextSize(1);
+        display.setCursor(0, 10);
+        display.println("UPDATING FIRMWARE");
+        display.setCursor(45, 26);
+        display.setTextSize(2);
+        display.printf("%d%%", pct);
+        display.setTextSize(1);
+        int w = (pct * 128) / 100;
+        display.drawRect(0, 50, 128, 10, SSD1306_WHITE);
+        display.fillRect(2, 52, (w > 4 ? w - 4 : 0), 6, SSD1306_WHITE);
+        display.display();
+      }
     }
   });
 
@@ -915,37 +924,98 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   const char* cmd = doc["cmd"];
   if (cmd) {
     if (strcmp(cmd, "tare") == 0) {
-      tareForce();
-      zeroDistance();
-      Serial.println("[MQTT] Perintah TARE jarak jauh sukses dieksekusi!");
-      showMsg("REMOTE TARE (WEB)", "Gaya & Jarak = 0", "", 1200);
+      remoteTareReq = true; // Signal ke Core 1 agar dieksekusi secara thread-safe
+      Serial.println("[MQTT Core0] Request Remote TARE diterima!");
     } else if (strcmp(cmd, "reset_max") == 0) {
-      forceMax = 0;
-      Serial.println("[MQTT] Fmax direset via remote!");
+      remoteResetMaxReq = true; // Signal ke Core 1
+      Serial.println("[MQTT Core0] Request Reset Fmax diterima!");
     }
   }
 }
 
-// Menjaga koneksi MQTT ke HiveMQ secara non-blocking
-void maintainMQTT() {
-  if (WiFi.status() != WL_CONNECTED) return;
+// Forward declaration
+void publishTelemetry();
 
-  if (!mqttClient.connected()) {
-    unsigned long now = millis();
-    if (now - lastMqttReconnect >= 5000) { // Coba koneksi tiap 5 detik (non-blocking)
-      lastMqttReconnect = now;
-      Serial.print("[MQTT] Menghubungkan ke HiveMQ... ");
-      String clientId = "ESP32_KatroKit_" + String((uint32_t)ESP.getEfuseMac(), HEX);
-      if (mqttClient.connect(clientId.c_str())) {
-        Serial.println("TERHUBUNG!");
-        mqttClient.subscribe(topicCmd.c_str());
-        Serial.printf("[MQTT] Subscribed to: %s\n", topicCmd.c_str());
-      } else {
-        Serial.printf("Gagal (rc=%d). Coba lagi 5s.\n", mqttClient.state());
+// Task Khusus FreeRTOS yang berjalan di Core 0 (PRO_CPU)
+// Bertanggung jawab menangani WiFi, Hotspot, ArduinoOTA, dan MQTT HiveMQ
+// sehingga Core 1 (Sensor, OLED, Tombol) 100% bebas dari blocking jaringan!
+void mqttTask(void *pvParameters) {
+  Serial.println("[FreeRTOS Core0] Task Jaringan (WiFi/MQTT/OTA) dimulai di Core 0!");
+
+  mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
+  mqttClient.setCallback(mqttCallback);
+  mqttClient.setBufferSize(512);
+
+  for (;;) {
+    // 1. Cek Koneksi WiFi Awal (15 detik timeout)
+    if (wifiState == WIFI_CONNECTING) {
+      if (WiFi.status() == WL_CONNECTED) {
+        setupOTA();
+        otaStarted = true;
+        wifiState = WIFI_CONNECTED_NOTIF;
+        wifiNotifStart = millis();
+        Serial.print("[WIFI Core0] Terhubung ke WiFi! IP: ");
+        Serial.println(WiFi.localIP());
+      } else if (millis() - wifiStartTime >= 15000) {
+        wm.setConfigPortalBlocking(false);
+        wm.startConfigPortal("KatroKit-AP");
+        apStarted = true;
+        wifiState = WIFI_HOTSPOT_NOTIF;
+        wifiNotifStart = millis();
+        Serial.println("[WIFI Core0] Timeout 15s tercapai. Hotspot 'KatroKit-AP' aktif di background.");
+      }
+    } else if (wifiState == WIFI_HOTSPOT_NOTIF) {
+      if (apStarted) wm.process();
+      if (millis() - wifiNotifStart >= 1000) {
+        wifiState = WIFI_RUNNING;
+        lastDraw = 0;
+      }
+    } else if (wifiState == WIFI_CONNECTED_NOTIF) {
+      if (millis() - wifiNotifStart >= 1000) {
+        wifiState = WIFI_RUNNING;
+        lastDraw = 0;
+      }
+    } else { // WIFI_RUNNING
+      if (apStarted) {
+        wm.process(); // Layani web server portal secara non-blocking di Core 0
+      }
+      if (WiFi.status() == WL_CONNECTED) {
+        if (!otaStarted) {
+          setupOTA();
+          otaStarted = true;
+          wifiState = WIFI_CONNECTED_NOTIF;
+          wifiNotifStart = millis();
+          Serial.print("[WIFI Core0] Terhubung via Portal! IP: ");
+          Serial.println(WiFi.localIP());
+        }
+        ArduinoOTA.handle(); // Layani OTA di Core 0
+
+        // 2. Layani Koneksi & Streaming MQTT HiveMQ di Core 0
+        if (!mqttClient.connected()) {
+          unsigned long now = millis();
+          if (now - lastMqttReconnect >= 5000) {
+            lastMqttReconnect = now;
+            Serial.print("[MQTT Core0] Menghubungkan ke HiveMQ... ");
+            String clientId = "ESP32_KatroKit_" + String((uint32_t)ESP.getEfuseMac(), HEX);
+            if (mqttClient.connect(clientId.c_str())) {
+              Serial.println("TERHUBUNG!");
+              mqttClient.subscribe(topicCmd.c_str());
+              Serial.printf("[MQTT Core0] Subscribed to: %s\n", topicCmd.c_str());
+            } else {
+              Serial.printf("Gagal (rc=%d). Coba lagi 5s.\n", mqttClient.state());
+            }
+          }
+        } else {
+          mqttClient.loop();
+
+          // Kirim telemetri 5 Hz (tiap 200 ms)
+          publishTelemetry();
+        }
       }
     }
-  } else {
-    mqttClient.loop();
+
+    // Yield ke FreeRTOS scheduler di Core 0 (10 ms)
+    vTaskDelay(pdMS_TO_TICKS(10));
   }
 }
 
@@ -1048,57 +1118,31 @@ void setup() {
     delay(60);
   }
   if (distValid) distRef = distCm;
+
+  // Jalankan Task Jaringan (WiFi/MQTT/OTA) di Core 0 (PRO_CPU)
+  // Memastikan Core 1 (Sensor, Tombol, Layar) 100% bebas dari lag jaringan!
+  xTaskCreatePinnedToCore(
+    mqttTask,
+    "mqtt_task",
+    8192,
+    NULL,
+    1,
+    &mqttTaskHandle,
+    0 // Pinned to Core 0!
+  );
 }
 
 void loop() {
-  // Layani koneksi MQTT ke HiveMQ & kirim data telemetri (Non-blocking)
-  maintainMQTT();
-  publishTelemetry();
-
-  // --- MANAJEMEN WIFI & HOTSPOT ASINKRON (NON-BLOCKING) ---
-  if (wifiState == WIFI_CONNECTING) {
-    if (WiFi.status() == WL_CONNECTED) {
-      setupOTA();
-      otaStarted = true;
-      wifiState = WIFI_CONNECTED_NOTIF;
-      wifiNotifStart = millis();
-      Serial.print("[WIFI] Terhubung ke WiFi! IP: ");
-      Serial.println(WiFi.localIP());
-    } else if (millis() - wifiStartTime >= 15000) {
-      // 15 detik timeout: Aktifkan Hotspot AP di background
-      wm.setConfigPortalBlocking(false);
-      wm.startConfigPortal("KatroKit-AP");
-      apStarted = true;
-      wifiState = WIFI_HOTSPOT_NOTIF;
-      wifiNotifStart = millis();
-      Serial.println("[WIFI] Timeout 15s tercapai. Hotspot 'KatroKit-AP' aktif di background.");
-    }
-  } else if (wifiState == WIFI_HOTSPOT_NOTIF) {
-    if (apStarted) wm.process();
-    if (millis() - wifiNotifStart >= 1000) {
-      wifiState = WIFI_RUNNING;
-      lastDraw = 0; // Segera redraw tampilan utama
-    }
-  } else if (wifiState == WIFI_CONNECTED_NOTIF) {
-    if (millis() - wifiNotifStart >= 1000) {
-      wifiState = WIFI_RUNNING;
-      lastDraw = 0; // Segera redraw tampilan utama
-    }
-  } else { // WIFI_RUNNING
-    if (apStarted) {
-      wm.process(); // Layani web server portal di background
-    }
-    if (WiFi.status() == WL_CONNECTED) {
-      if (!otaStarted) {
-        setupOTA();
-        otaStarted = true;
-        wifiState = WIFI_CONNECTED_NOTIF;
-        wifiNotifStart = millis();
-        Serial.print("[WIFI] Terhubung via Portal! IP: ");
-        Serial.println(WiFi.localIP());
-      }
-      ArduinoOTA.handle();
-    }
+  // Eksekusi request remote dari web secara thread-safe di Core 1
+  if (remoteTareReq) {
+    remoteTareReq = false;
+    tareForce();
+    zeroDistance();
+    showMsg("REMOTE TARE (WEB)", "Gaya & Jarak = 0", "", 1200);
+  }
+  if (remoteResetMaxReq) {
+    remoteResetMaxReq = false;
+    forceMax = 0;
   }
 
   handleSerial();
