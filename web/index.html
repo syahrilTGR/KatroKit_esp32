@@ -48,8 +48,13 @@
   <!-- Chart.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
-  <!-- MQTT.js CDN -->
-  <script src="https://unpkg.com/mqtt@5.3.5/dist/mqtt.min.js"></script>
+  <!-- MQTT.js CDN (Stable UMD Browser build) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+  <script>
+    if (typeof mqtt === 'undefined' && typeof window.mqtt === 'undefined') {
+      document.write('<script src="https://cdn.jsdelivr.net/npm/mqtt@4.3.7/dist/mqtt.min.js"><\/script>');
+    }
+  </script>
 
   <style>
     /* Custom scrollbar */
@@ -482,9 +487,14 @@
       <form id="settingsForm" class="space-y-4 mt-4">
         <!-- Broker WebSocket URL -->
         <div>
-          <label class="block text-xs font-semibold text-slate-300 mb-1">Broker WebSocket URL (WSS)</label>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Broker WebSocket URL</label>
           <input type="text" id="cfgBrokerUrl" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 font-mono text-xs focus:ring-2 focus:ring-sky-500 focus:outline-none" placeholder="wss://broker.hivemq.com:8884/mqtt" required />
-          <p class="text-[11px] text-slate-500 mt-1">HiveMQ Public Broker WebSocket port WSS: <code>8884</code></p>
+          <div class="flex gap-2 mt-1.5 flex-wrap">
+            <button type="button" class="preset-broker px-2 py-0.5 rounded bg-slate-800 text-[10px] text-sky-400 hover:bg-slate-700" data-url="wss://broker.hivemq.com:8884/mqtt">HiveMQ SSL (Port 8884)</button>
+            <button type="button" class="preset-broker px-2 py-0.5 rounded bg-slate-800 text-[10px] text-slate-400 hover:bg-slate-700" data-url="ws://broker.hivemq.com:8000/mqtt">HiveMQ Plain (Port 8000)</button>
+            <button type="button" class="preset-broker px-2 py-0.5 rounded bg-slate-800 text-[10px] text-slate-400 hover:bg-slate-700" data-url="wss://broker.emqx.io:8084/mqtt">EMQX SSL (Port 8084)</button>
+          </div>
+          <p class="text-[11px] text-slate-500 mt-1">Gunakan port 8884 (SSL/WSS) atau 8000 (WS non-SSL) untuk HiveMQ.</p>
         </div>
 
         <!-- Device ID -->
@@ -777,6 +787,14 @@
       setConnectionStatus('connecting', 'Menghubungkan...');
       showToast(`Menyambung ke MQTT ${appConfig.brokerUrl}...`, 'info');
 
+      const mqttLib = window.mqtt || (typeof mqtt !== 'undefined' ? mqtt : null);
+      if (!mqttLib || typeof mqttLib.connect !== 'function') {
+        console.error('MQTT.js library not loaded properly!');
+        setConnectionStatus('disconnected', 'Library Error');
+        showToast('Library MQTT.js gagal dimuat dari CDN. Silakan refresh halaman.', 'error');
+        return;
+      }
+
       const clientId = `katrokit_web_${Math.random().toString(16).substring(2, 10)}`;
       
       const options = {
@@ -788,7 +806,7 @@
       };
 
       try {
-        mqttClient = mqtt.connect(appConfig.brokerUrl, options);
+        mqttClient = mqttLib.connect(appConfig.brokerUrl, options);
       } catch (err) {
         console.error('MQTT Connect Exception:', err);
         setConnectionStatus('disconnected', 'Gagal Koneksi');
@@ -1130,6 +1148,13 @@
       if (prevBroker !== appConfig.brokerUrl || prevDevice !== appConfig.deviceId) {
         connectMqtt();
       }
+    });
+
+    // Preset broker buttons
+    document.querySelectorAll('.preset-broker').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.getElementById('cfgBrokerUrl').value = btn.getAttribute('data-url');
+      });
     });
 
     // Reset settings
