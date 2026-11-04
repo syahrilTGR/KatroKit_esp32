@@ -31,6 +31,9 @@
 #include <Adafruit_SSD1306.h>
 #include <HX711.h>
 #include <Preferences.h>
+#include <WiFi.h>
+#include <WiFiManager.h>
+#include <ArduinoOTA.h>
 
 // ---------- Pin ----------
 const int HX_DT   = 19;
@@ -42,9 +45,9 @@ const int SCL_PIN = 22;
 const int BTN     = 4;   // tombol push button eksternal (soket JST GPIO 4)
 
 // ---------- Pengaturan ----------
-const float CAL_REF_G = 200.0f;                       // beban referensi kalibrasi (gram)
-const float PRESETS[] = {100, 200, 250, 300, 500};    // pilihan W lewat tombol (gram)
-const int   N_PRESETS = 5;
+const float CAL_REF_G = 240.0f;                       // beban referensi kalibrasi 1-titik (gram)
+const float PRESETS[] = {50, 100, 120, 140, 200, 240}; // pilihan W lewat tombol (gram)
+const int   N_PRESETS = 6;
 
 const unsigned long T_WEIGH  = 1500;   // batas tahan: tare -> timbang
 const unsigned long T_PRESET = 3000;   // timbang -> pilih W
@@ -57,12 +60,38 @@ const uint8_t OLED_ADDR = 0x3C;   // jika layar kosong, coba 0x3D
 Adafruit_SSD1306 display(SCREEN_W, SCREEN_H, &Wire, -1);
 bool oledOk = false;
 
-// ---------- HX711 ----------
+// ---------- HX711 & Kalibrasi ----------
 HX711 scale;
 Preferences prefs;
 const float G = 9.81f;
 float calFactor = 1.0f;
 float forceSign = -1.0f;
+
+// Kalibrasi 2-Segmen (Multi-Point)
+bool isMultiCal = false;
+float cal1 = 1.0f;
+float cal2 = 1.0f;
+float midGrams = 100.0f;
+long midRaw = 0;
+
+// Konversi RAW ADC ke Newton & Gram
+float rawToNewtons(float raw) {
+  float raw_adj = forceSign * raw;
+  if (isMultiCal && midRaw > 0 && cal1 > 0 && cal2 > 0) {
+    float grams = 0.0f;
+    if (raw_adj <= (float)midRaw) {
+      grams = raw_adj / cal1;
+    } else {
+      grams = midGrams + ((raw_adj - (float)midRaw) / cal2);
+    }
+    return (grams / 1000.0f) * G;
+  }
+  return raw_adj / calFactor;
+}
+
+float rawToGrams(float raw) {
+  return (rawToNewtons(raw) / G) * 1000.0f;
+}
 
 // ---------- Filter ----------
 const int F_N = 3;
@@ -175,6 +204,8 @@ void zeroDistance() {
 
 void resetCalibration() {
   calFactor = 1.0f;
+  isMultiCal = false;
+  prefs.putBool("is_multi", false);
   prefs.putFloat("cal", 1.0f);
   isCalibrated = false;
   Serial.println("Kalibrasi di-reset (!CAL).");
@@ -217,6 +248,8 @@ void calibrate(float grams) {
   prefs.putFloat("sign", forceSign);
   calFactor = fabs(raw) / newton;
   prefs.putFloat("cal", calFactor);
+  isMultiCal = false;
+  prefs.putBool("is_multi", false);
   fIdx = 0; fFull = false; forceMax = 0;
   isCalibrated = true;
 
@@ -227,6 +260,135 @@ void calibrate(float grams) {
   Serial.print("Arah Gaya      : "); Serial.println(forceSign > 0 ? "Normal (+)" : "Dibalik (-)");
 
   showMsg("KALIBRASI OK", b1, "Kait kosong -> TARE", 2500);
+}
+
+// Kalibrasi 2-Segmen (0g -> Tengah -> Maksimal)
+void calibrateMulti() {
+  Serial.println("\n========================================================");
+  Serial.println("  KALIBRASI 2-SEGMEN (MULTI-POINT: 0g -> TENGAH -> MAX) ");
+  Serial.println("========================================================");
+  Serial.println("Panduan beban yang Anda miliki (50gx4, 20gx2):");
+  Serial.println("  * Beban Tengah  : misal 100g (2x 50g) atau 120g (2x 50g + 1x 20g)");
+  Serial.println("  * Beban Maksimal: 240g (semua beban dipasang)");
+  Serial.println("--------------------------------------------------------");
+
+  showMsg("KALIBRASI MULTI", "Langkah 1/3", "Kait kosong -> Enter", 1000);
+
+  // Langkah 1: Tare titik nol
+  Serial.println("\n[LANGKAH 1/3] KOSONGKAN KAIT (0 gram).");
+  Serial.println(">> Ketik sembarang karakter lalu Enter setelah kait kosong:");
+  while (true) {
+    if (Serial.available()) {
+      String s = Serial.readStringUntil('\n');
+      s.trim();
+      if (s.length() > 0) break;
+    }
+    delay(50);
+  }
+  Serial.print(">> Mengunci titik nol (Tare 20 sampel)... ");
+  scale.tare(20);
+  fIdx = 0; fFull = false; forceMax = 0;
+  Serial.println("SUKSES (Titik 0g terkunci).");
+
+  showMsg("LANGKAH 2/3", "Gantung Beban Mid", "Ketik gram di Serial", 1000);
+
+  // Langkah 2: Beban Tengah
+  Serial.println("\n[LANGKAH 2/3] GANTUNG BEBAN TENGAH (misal 100g atau 120g).");
+  Serial.println(">> Masukkan angka berat dalam gram (contoh: 100):");
+  float wMid = 0;
+  while (wMid <= 0) {
+    if (Serial.available()) {
+      String s = Serial.readStringUntil('\n');
+      s.trim();
+      wMid = s.toFloat();
+      if (wMid <= 0) {
+        Serial.println(">> Angka tidak valid. Masukkan angka (misal 100):");
+      }
+    }
+    delay(50);
+  }
+  Serial.printf(">> Beban tengah: %.1f g. Mengambil 20 sampel stabil...\n", wMid);
+  delay(1500);
+
+  float rawMidF = 0, spreadMid = 0;
+  if (!sampleRaw(rawMidF, spreadMid)) {
+    Serial.println("[GAGAL] HX711 tidak merespons atau beban goyang.");
+    showMsg("GAGAL", "HX711 lambat/goyang", "", 1800);
+    return;
+  }
+  long adjMid = labs((long)rawMidF);
+  if (adjMid < 50) {
+    Serial.println("[GAGAL] Nilai ADC terlalu kecil. Periksa gantungan beban!");
+    showMsg("BEBAN TAK TERBACA", "Periksa beban", "", 2000);
+    return;
+  }
+  float c1 = (float)adjMid / wMid;
+  Serial.printf(">> Titik Tengah OK! ADC: %ld | cal1: %.2f\n", (long)rawMidF, c1);
+
+  showMsg("LANGKAH 3/3", "Gantung Beban Max", "Ketik gram di Serial", 1000);
+
+  // Langkah 3: Beban Maksimal
+  Serial.println("\n[LANGKAH 3/3] GANTUNG BEBAN MAKSIMAL (contoh: 240g).");
+  Serial.println(">> Masukkan angka berat maksimal dalam gram (contoh: 240):");
+  float wMax = 0;
+  while (wMax <= wMid) {
+    if (Serial.available()) {
+      String s = Serial.readStringUntil('\n');
+      s.trim();
+      wMax = s.toFloat();
+      if (wMax <= wMid) {
+        Serial.printf(">> Beban maksimal harus lebih besar dari %.1f g (contoh: 240):\n", wMid);
+      }
+    }
+    delay(50);
+  }
+  Serial.printf(">> Beban maksimal: %.1f g. Mengambil 20 sampel stabil...\n", wMax);
+  delay(1500);
+
+  float rawMaxF = 0, spreadMax = 0;
+  if (!sampleRaw(rawMaxF, spreadMax)) {
+    Serial.println("[GAGAL] HX711 tidak merespons atau beban goyang.");
+    showMsg("GAGAL", "HX711 lambat/goyang", "", 1800);
+    return;
+  }
+  long adjMax = labs((long)rawMaxF);
+  if (adjMax <= adjMid + 50) {
+    Serial.println("[GAGAL] Nilai ADC maksimal tidak bertambah secara wajar.");
+    showMsg("GAGAL", "ADC tdk bertambah", "", 2000);
+    return;
+  }
+  float c2 = (float)(adjMax - adjMid) / (wMax - wMid);
+  Serial.printf(">> Titik Maksimal OK! ADC: %ld | cal2: %.2f\n", (long)rawMaxF, c2);
+
+  // Hitung polaritas arah
+  forceSign = (rawMaxF < 0) ? -1.0f : 1.0f;
+
+  // Simpan data Multi-Segmen
+  isMultiCal = true;
+  cal1 = c1;
+  cal2 = c2;
+  midGrams = wMid;
+  midRaw = adjMid;
+  calFactor = ((float)adjMax / (wMax / 1000.0f)) / G;
+  isCalibrated = true;
+
+  prefs.putBool("is_multi", true);
+  prefs.putFloat("cal1", cal1);
+  prefs.putFloat("cal2", cal2);
+  prefs.putFloat("mid_w", midGrams);
+  prefs.putLong("mid_raw", midRaw);
+  prefs.putFloat("cal", calFactor);
+  prefs.putFloat("sign", forceSign);
+
+  Serial.println("\n========================================================");
+  Serial.println(">> KALIBRASI 2-SEGMEN BERHASIL DISIMPAN KE FLASH ESP32!");
+  Serial.printf("   Segmen 1 (0 s/d %.0f g)    : cal1 = %.2f\n", midGrams, cal1);
+  Serial.printf("   Segmen 2 (%.0f s/d %.0f g) : cal2 = %.2f\n", midGrams, wMax, cal2);
+  Serial.printf("   Arah Tanda (Sign)         : %.1f\n", forceSign);
+  Serial.println(">> Sekarang beban tengah maupun beban maksimal akan presisi!");
+  Serial.println("========================================================\n");
+
+  showMsg("KALIBRASI MULTI OK", "Tersimpan di Flash", "Alat siap digunakan", 2500);
 }
 
 void setBeban(float grams) {
@@ -252,9 +414,9 @@ void weighLoad() {
     showMsg("GAGAL", "HX711 lambat/putus", "", 1800);
     return;
   }
-  float newton = forceSign * (raw / calFactor);
-  float grams = (newton / G) * 1000.0f;
-  float spreadN = spread / calFactor;
+  float newton = rawToNewtons(raw);
+  float grams = rawToGrams(raw);
+  float spreadN = (spread / 1000.0f) * G / (isMultiCal ? cal1 : calFactor);
 
   if (spreadN > WEIGH_STABLE_N) {
     showMsg("BEBAN GOYANG", "Tunggu diam lalu", "ulangi timbang", 2000);
@@ -298,7 +460,14 @@ void printDiagnostics() {
   float rawVal = scale.get_value(5);
   Serial.println("--- DIAGNOSTIK SENSOR HX711 ---");
   Serial.print("Nilai RAW ADC saat ini : "); Serial.println(rawVal, 0);
-  Serial.print("Faktor Kalibrasi       : "); Serial.println(calFactor, 2);
+  if (isMultiCal) {
+    Serial.println("Mode Kalibrasi         : 2-SEGMEN (MULTI-POINT)");
+    Serial.printf("Segmen 1 (0 -> %.0fg)   : cal1 = %.2f\n", midGrams, cal1);
+    Serial.printf("Segmen 2 (%.0fg -> MAX): cal2 = %.2f\n", midGrams, cal2);
+  } else {
+    Serial.println("Mode Kalibrasi         : 1-TITIK STANDAR");
+    Serial.print("Faktor Kalibrasi       : "); Serial.println(calFactor, 2);
+  }
   Serial.print("Status Kalibrasi       : "); Serial.println(isCalibrated ? "TERKALIBRASI (OK)" : "BELUM (!CAL)");
   Serial.print("Arah Tanda (Sign)      : "); Serial.println(forceSign > 0 ? "+1.0 (Normal)" : "-1.0 (Inverted)");
   Serial.print("Pembacaan Gaya (N)     : "); Serial.println(force, 2);
@@ -321,25 +490,26 @@ void handleSerial() {
   else if (c == 'i') {
     forceSign = -forceSign;
     prefs.putFloat("sign", forceSign);
-    Serial.println(forceSign > 0 ? "Arah: Normal" : "Arah: Dibalik");
+    Serial.println(forceSign > 0 ? "Arah: Normal (+)" : "Arah: Dibalik (-)");
   }
   else if (c == 'd') printDiagnostics();
-  else if (c == 'm') weighLoad();
+  else if (s == "m" || s == "mcal") calibrateMulti();
+  else if (s == "w" || s == "weigh") weighLoad();
   else if (c == 'c') {
     if (arg == "0") resetCalibration();
     else if (arg.toFloat() > 0) calibrate(arg.toFloat());
-    else Serial.println("Format salah. Contoh: c200 atau c0");
+    else Serial.println("Format salah. Contoh: c240 atau c0");
   }
-  else if (c == 'b' || c == 'w') {
+  else if (c == 'b') {
     float bg = arg.toFloat();
     if (bg > 0) {
       setBeban(bg);
       Serial.print("Beban W diatur: "); Serial.print(bebanGram, 1); Serial.println(" g");
     } else {
-      Serial.println("Massa beban tidak valid. Contoh: b500");
+      Serial.println("Massa beban tidak valid. Contoh: b240");
     }
   }
-  else Serial.println("Perintah: t | z | r | i | d | m | c<gram> | c0 | b<gram>");
+  else Serial.println("Perintah: t (tare) | z (zero dist) | m (multi-cal) | w (timbang) | i (invert) | d (diag) | c<g> | b<g>");
 }
 
 // Layar saat tombol ditahan: tunjukkan aksi yang terjadi jika dilepas sekarang
@@ -435,6 +605,126 @@ void draw() {
   display.display();
 }
 
+// Setup dan Handler ArduinoOTA
+void setupOTA() {
+  ArduinoOTA.setHostname("katrokit-esp32");
+
+  ArduinoOTA.onStart([]() {
+    String type;
+    if (ArduinoOTA.getCommand() == U_FLASH) {
+      type = "sketch";
+    } else {
+      type = "filesystem";
+    }
+    Serial.println("\n[OTA] Mulai update firmware: " + type);
+    if (oledOk) {
+      display.clearDisplay();
+      display.setTextColor(SSD1306_WHITE);
+      display.setTextSize(1);
+      display.setCursor(0, 15);
+      display.println("OTA UPDATE...");
+      display.setCursor(0, 35);
+      display.println("Mohon Tunggu...");
+      display.display();
+    }
+  });
+
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\n[OTA] Update Selesai & Berhasil! Restarting...");
+    if (oledOk) {
+      display.clearDisplay();
+      display.setCursor(0, 20);
+      display.println("UPDATE SUKSES!");
+      display.setCursor(0, 40);
+      display.println("Restarting ESP32...");
+      display.display();
+    }
+  });
+
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    unsigned int pct = progress / (total / 100);
+    Serial.printf("[OTA] Progress: %u%%\r", pct);
+    if (oledOk) {
+      display.clearDisplay();
+      display.setTextSize(1);
+      display.setCursor(0, 10);
+      display.println("UPDATING FIRMWARE");
+      display.setCursor(45, 26);
+      display.setTextSize(2);
+      display.printf("%d%%", pct);
+      display.setTextSize(1);
+      int w = (pct * 128) / 100;
+      display.drawRect(0, 50, 128, 10, SSD1306_WHITE);
+      display.fillRect(2, 52, (w > 4 ? w - 4 : 0), 6, SSD1306_WHITE);
+      display.display();
+    }
+  });
+
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("[OTA] Terjadi Error [%u]: ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println("Auth Gagal");
+    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Gagal");
+    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Gagal");
+    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Gagal");
+    else if (error == OTA_END_ERROR) Serial.println("End Gagal");
+  });
+
+  ArduinoOTA.begin();
+  Serial.println("[OTA] ArduinoOTA siap. Hostname: katrokit-esp32.local");
+}
+
+void initWiFiAndOTA() {
+  WiFiManager wm;
+  wm.setConfigPortalTimeout(60); // Timeout 60 detik agar tidak freeze saat offline
+  wm.setConnectTimeout(10);
+
+  if (oledOk) {
+    display.clearDisplay();
+    display.setTextColor(SSD1306_WHITE);
+    display.setTextSize(1);
+    display.setCursor(0, 5);
+    display.println("Menghubungkan WiFi...");
+    display.setCursor(0, 22);
+    display.println("Jika belum connect:");
+    display.setCursor(0, 36);
+    display.println("Buka WiFi HP / Laptop");
+    display.setCursor(0, 50);
+    display.println("AP: KatroKit-AP");
+    display.display();
+  }
+
+  Serial.println("[WIFI] Memulai WiFiManager...");
+  bool connected = wm.autoConnect("KatroKit-AP");
+
+  if (connected) {
+    Serial.println("[WIFI] Berhasil terhubung ke jaringan!");
+    Serial.print("[WIFI] IP Address: ");
+    Serial.println(WiFi.localIP());
+
+    setupOTA();
+
+    if (oledOk) {
+      display.clearDisplay();
+      display.setTextSize(1);
+      display.setCursor(0, 5);
+      display.println("WiFi Terhubung!");
+      display.setCursor(0, 20);
+      display.println(WiFi.SSID());
+      display.setCursor(0, 36);
+      display.println("IP:");
+      display.setCursor(0, 48);
+      display.println(WiFi.localIP().toString());
+      display.display();
+      delay(2000);
+    }
+  } else {
+    Serial.println("[WIFI] Timeout! Melanjutkan dalam mode Offline.");
+    if (oledOk) {
+      showMsg("WIFI OFFLINE", "Mode offline aktif", "KatroKit Siap!", 1500);
+    }
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   Serial.setTimeout(50);
@@ -446,7 +736,12 @@ void setup() {
   oledOk = display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);
   if (!oledOk) {
     Serial.println("OLED tidak terdeteksi! Cek kabel SDA/SCL dan alamat I2C (0x3C/0x3D).");
-  } else {
+  }
+
+  // Inisialisasi WiFi & ArduinoOTA
+  initWiFiAndOTA();
+
+  if (oledOk) {
     display.clearDisplay();
     display.setTextColor(SSD1306_WHITE);
     display.setTextSize(2);
@@ -461,8 +756,21 @@ void setup() {
   prefs.begin("katrokit", false);
   calFactor = prefs.getFloat("cal", 1.0f);
   forceSign = prefs.getFloat("sign", -1.0f);
-  bebanGram = prefs.getFloat("beban", 500.0f);
+  bebanGram = prefs.getFloat("beban", 240.0f);
   bebanW = (bebanGram / 1000.0f) * G;
+
+  isMultiCal = prefs.getBool("is_multi", false);
+  if (isMultiCal) {
+    cal1 = prefs.getFloat("cal1", calFactor);
+    cal2 = prefs.getFloat("cal2", calFactor);
+    midGrams = prefs.getFloat("mid_w", 100.0f);
+    midRaw = prefs.getLong("mid_raw", 0);
+    isCalibrated = true;
+    Serial.printf("[INFO] Mode Kalibrasi: 2-SEGMEN (0 -> %.0fg -> MAX)\n", midGrams);
+  } else {
+    isCalibrated = (calFactor != 1.0f);
+    Serial.printf("[INFO] Mode Kalibrasi: 1-TITIK STANDAR (calFactor = %.2f)\n", calFactor);
+  }
 
   scale.begin(HX_DT, HX_SCK);
   delay(1500);
@@ -472,9 +780,8 @@ void setup() {
     Serial.println("HX711 tidak merespons! Cek DT/SCK, VCC 3.3V dan GND.");
   }
 
-  isCalibrated = (calFactor != 1.0f);
   if (!isCalibrated) {
-    showMsg("BELUM KALIBRASI", "Gantung 200 g,", "tahan BOOT >5 dtk", 3000);
+    showMsg("BELUM KALIBRASI", "Ketik m di Serial", "utk kalibrasi", 3000);
   }
 
   for (int i = 0; i < 5; i++) {
@@ -486,12 +793,16 @@ void setup() {
 }
 
 void loop() {
+  if (WiFi.status() == WL_CONNECTED) {
+    ArduinoOTA.handle();
+  }
+
   handleSerial();
 
   // Gaya
   if (scale.is_ready()) {
     lastRaw = scale.get_value(1);
-    float fInstant = forceSign * (lastRaw / calFactor);
+    float fInstant = rawToNewtons((float)lastRaw);
     fBuf[fIdx] = fInstant;
     fIdx++;
     if (fIdx >= F_N) { fIdx = 0; fFull = true; }
