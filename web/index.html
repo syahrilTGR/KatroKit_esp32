@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="id" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KatroKit Physics Dashboard — ESP32 Telemetry</title>
+  
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#f0f9ff',
+              100: '#e0f2fe',
+              400: '#38bdf8',
+              500: '#0ea5e9',
+              600: '#0284c7',
+            },
+            phys: {
+              force: '#38bdf8',     // Cyan
+              weight: '#f59e0b',    // Amber
+              km: '#10b981',        // Emerald
+              disp: '#a855f7',      // Purple
+              work: '#ec4899',      // Pink
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <!-- MQTT.js CDN -->
+  <script src="https://unpkg.com/mqtt@5.3.5/dist/mqtt.min.js"></script>
+
+  <style>
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+    
+    .pulse-glow {
+      box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);
+    }
+    .pulse-glow-amber {
+      box-shadow: 0 0 15px rgba(245, 158, 11, 0.4);
+    }
+    .pulse-glow-red {
+      box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen flex flex-col antialiased selection:bg-sky-500 selection:text-white">
+
+  <!-- TOP NAVIGATION HEADER -->
+  <header class="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-wrap items-center justify-between gap-4">
+      
+      <!-- Brand & Project Info -->
+      <div class="flex items-center space-x-3.5">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-600 to-cyan-400 flex items-center justify-center shadow-lg shadow-sky-500/20 text-white text-lg">
+          <i class="fa-solid fa-arrows-split-up-and-left"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-1.5">
+              KatroKit <span class="text-sky-400 font-extrabold text-sm uppercase px-1.5 py-0.5 rounded bg-sky-950/80 border border-sky-800/60">Lab v1.0</span>
+            </h1>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700/80 hidden sm:inline">
+              Fisika Katrol & Usaha
+            </span>
+          </div>
+          <p class="text-xs text-slate-400 flex items-center gap-1.5">
+            <span>ESP32 Telemetry</span>
+            <span class="text-slate-600">•</span>
+            <span id="headerDeviceLabel" class="font-mono text-slate-300">ID: katrokit_01</span>
+          </p>
+        </div>
+      </div>
+
+      <!-- Live Status & Controls -->
+      <div class="flex items-center flex-wrap gap-2 sm:gap-3">
+        <!-- Security Token Badge -->
+        <div id="securityPill" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-950/60 text-emerald-400 border border-emerald-800/50" title="Token Otentikasi Terverifikasi">
+          <i class="fa-solid fa-shield-halved text-emerald-400"></i>
+          <span id="securityPillText" class="hidden md:inline">Token Guarded</span>
+        </div>
+
+        <!-- Connection Status Indicator -->
+        <div id="connPill" class="flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-slate-800 text-slate-300 border border-slate-700">
+          <span id="connDot" class="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+          <span id="connText">Disconnected</span>
+        </div>
+
+        <!-- Settings Modal Toggle Button -->
+        <button id="btnOpenSettings" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-sky-500">
+          <i class="fa-solid fa-gear text-slate-400"></i>
+          <span>Pengaturan</span>
+        </button>
+
+        <!-- Reconnect Button -->
+        <button id="btnReconnect" class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold transition flex items-center gap-1.5 shadow-sm focus:outline-none">
+          <i class="fa-solid fa-rotate text-xs"></i>
+          <span class="hidden sm:inline">Koneksikan</span>
+        </button>
+      </div>
+
+    </div>
+  </header>
+
+  <!-- SECURITY MISMATCH WARNING ALERT (Hidden by default) -->
+  <div id="securityAlertBar" class="hidden bg-rose-950/90 border-b border-rose-800 text-rose-200 px-4 py-2.5 text-xs sm:text-sm">
+    <div class="max-w-7xl mx-auto flex items-center justify-between gap-3">
+      <div class="flex items-center gap-2">
+        <i class="fa-solid fa-triangle-exclamation text-rose-400 text-base animate-pulse"></i>
+        <span><strong>Peringatan Keamanan:</strong> Ada pesan masuk diabaikan karena <em>Secret Token</em> tidak cocok dengan pengaturan dashboard!</span>
+      </div>
+      <button id="btnDismissAlert" class="text-rose-400 hover:text-white font-bold px-2 py-0.5 rounded">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- MAIN DASHBOARD CONTENT -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full space-y-6">
+
+    <!-- ACTION CONTROL STRIP -->
+    <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-900/60 p-3.5 rounded-2xl border border-slate-800/80">
+      
+      <!-- Left side: Topic & Status info -->
+      <div class="flex items-center flex-wrap gap-2 text-xs text-slate-400">
+        <span class="px-2 py-1 rounded bg-slate-800/90 border border-slate-700 text-slate-300 font-mono flex items-center gap-1">
+          <i class="fa-solid fa-satellite-dish text-sky-400 text-xs"></i>
+          <span id="topicSubLabel">katrokit/katrokit_01/telemetry</span>
+        </span>
+        <span class="flex items-center gap-1 text-slate-400">
+          <i class="fa-solid fa-clock-rotate-left"></i>
+          <span>Update Terakhir:</span>
+          <span id="lastSeenLabel" class="font-mono text-slate-200">Belum ada data</span>
+        </span>
+      </div>
+
+      <!-- Right side: Realtime Action Buttons -->
+      <div class="flex items-center flex-wrap gap-2">
+        <!-- Tare Command Button -->
+        <button id="btnTare" title="Kirim instruksi Tare (Nol-kan Load Cell) ke ESP32" class="flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 text-xs font-semibold transition flex items-center justify-center gap-1.5 active:scale-95">
+          <i class="fa-solid fa-scale-unbalanced text-amber-400"></i>
+          <span>Remote TARE</span>
+        </button>
+
+        <!-- Pause / Stream Toggle -->
+        <button id="btnPauseStream" class="flex-1 sm:flex-none px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium transition flex items-center justify-center gap-1.5">
+          <i id="pauseIcon" class="fa-solid fa-pause text-slate-400"></i>
+          <span id="pauseText">Pause</span>
+        </button>
+
+        <!-- Clear Charts -->
+        <button id="btnClearCharts" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-medium transition flex items-center justify-center gap-1.5">
+          <i class="fa-solid fa-trash-can text-slate-400"></i>
+          <span class="hidden md:inline">Reset Grafik</span>
+        </button>
+
+        <!-- Export CSV -->
+        <button id="btnExportCsv" class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-sm shadow-emerald-900/30">
+          <i class="fa-solid fa-file-csv"></i>
+          <span>Ekspor CSV</span>
+        </button>
+      </div>
+
+    </div>
+
+    <!-- 5 PRIMARY METRIC CARDS -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      
+      <!-- Metric 1: Gaya Kuasa (F) -->
+      <div class="bg-slate-900/80 rounded-2xl p-4 border border-slate-800 relative overflow-hidden group hover:border-sky-500/40 transition">
+        <div class="absolute -right-4 -top-4 w-16 h-16 bg-sky-500/10 rounded-full blur-xl pointer-events-none"></div>
+        <div class="flex items-center justify-between text-xs text-slate-400 mb-2">
+          <span class="font-medium flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-sky-400"></span> Gaya Kuasa (F)
+          </span>
+          <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">Tali / Dinamometer</span>
+        </div>
+        <div class="flex items-baseline gap-1 my-1">
+          <span id="valForce" class="text-3xl font-extrabold tracking-tight font-mono text-sky-400">0.00</span>
+          <span class="text-sm font-semibold text-slate-400">N</span>
+        </div>
+        <div class="flex items-center justify-between pt-2 mt-2 border-t border-slate-800/80 text-[11px] text-slate-400">
+          <span>Puncak (F<sub>max</sub>):</span>
+          <span class="font-mono text-slate-200 font-semibold"><span id="valForceMax">0.00</span> N</span>
+        </div>
+      </div>
+
+      <!-- Metric 2: Berat Beban (W) -->
+      <div class="bg-slate-900/80 rounded-2xl p-4 border border-slate-800 relative overflow-hidden group hover:border-amber-500/40 transition">
+        <div class="absolute -right-4 -top-4 w-16 h-16 bg-amber-500/10 rounded-full blur-xl pointer-events-none"></div>
+        <div class="flex items-center justify-between text-xs text-slate-400 mb-2">
+          <span class="font-medium flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-amber-400"></span> Berat Beban (W)
+          </span>
+          <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">Load Cell</span>
+        </div>
+        <div class="flex items-baseline gap-1 my-1">
+          <span id="valWeightN" class="text-3xl font-extrabold tracking-tight font-mono text-amber-400">0.00</span>
+          <span class="text-sm font-semibold text-slate-400">N</span>
+        </div>
+        <div class="flex items-center justify-between pt-2 mt-2 border-t border-slate-800/80 text-[11px] text-slate-400">
+          <span>Massa setara:</span>
+          <span class="font-mono text-slate-200 font-semibold"><span id="valWeightG">0.0</span> g</span>
+        </div>
+      </div>
+
+      <!-- Metric 3: Keuntungan Mekanis (KM) -->
+      <div class="bg-slate-900/80 rounded-2xl p-4 border border-slate-800 relative overflow-hidden group hover:border-emerald-500/40 transition">
+        <div class="absolute -right-4 -top-4 w-16 h-16 bg-emerald-500/10 rounded-full blur-xl pointer-events-none"></div>
+        <div class="flex items-center justify-between text-xs text-slate-400 mb-2">
+          <span class="font-medium flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-emerald-400"></span> Keuntungan Mekanis
+          </span>
+          <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">KM = W / F</span>
+        </div>
+        <div class="flex items-baseline gap-1 my-1">
+          <span id="valKM" class="text-3xl font-extrabold tracking-tight font-mono text-emerald-400">0.00</span>
+          <span class="text-sm font-semibold text-emerald-500/80">x</span>
+        </div>
+        <div class="flex items-center justify-between pt-2 mt-2 border-t border-slate-800/80 text-[11px] text-slate-400">
+          <span>Efisiensi Katrol:</span>
+          <span id="badgeKMDesc" class="font-semibold text-slate-300">Netral</span>
+        </div>
+      </div>
+
+      <!-- Metric 4: Perpindahan Beban (Δs) -->
+      <div class="bg-slate-900/80 rounded-2xl p-4 border border-slate-800 relative overflow-hidden group hover:border-purple-500/40 transition">
+        <div class="absolute -right-4 -top-4 w-16 h-16 bg-purple-500/10 rounded-full blur-xl pointer-events-none"></div>
+        <div class="flex items-center justify-between text-xs text-slate-400 mb-2">
+          <span class="font-medium flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-purple-400"></span> Perpindahan (Δs)
+          </span>
+          <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">Sensor Ultrasonik/ToF</span>
+        </div>
+        <div class="flex items-baseline gap-1 my-1">
+          <span id="valDisp" class="text-3xl font-extrabold tracking-tight font-mono text-purple-400">0.0</span>
+          <span class="text-sm font-semibold text-slate-400">cm</span>
+        </div>
+        <div class="flex items-center justify-between pt-2 mt-2 border-t border-slate-800/80 text-[11px] text-slate-400">
+          <span>Jarak aktual sensor:</span>
+          <span class="font-mono text-slate-200 font-semibold"><span id="valDist">0.0</span> cm</span>
+        </div>
+      </div>
+
+      <!-- Metric 5: Usaha Mekanik (Work) -->
+      <div class="bg-slate-900/80 rounded-2xl p-4 border border-slate-800 relative overflow-hidden group hover:border-pink-500/40 transition">
+        <div class="absolute -right-4 -top-4 w-16 h-16 bg-pink-500/10 rounded-full blur-xl pointer-events-none"></div>
+        <div class="flex items-center justify-between text-xs text-slate-400 mb-2">
+          <span class="font-medium flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-pink-400"></span> Usaha Mekanik (W)
+          </span>
+          <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">W = F × Δs</span>
+        </div>
+        <div class="flex items-baseline gap-1 my-1">
+          <span id="valWork" class="text-3xl font-extrabold tracking-tight font-mono text-pink-400">0.000</span>
+          <span class="text-sm font-semibold text-slate-400">Joule</span>
+        </div>
+        <div class="flex items-center justify-between pt-2 mt-2 border-t border-slate-800/80 text-[11px] text-slate-400">
+          <span>Energi Kerja:</span>
+          <span class="font-mono text-slate-200 font-semibold"><span id="valWorkMili">0.0</span> mJ</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- CHARTS SECTION -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      
+      <!-- Chart 1: Force vs Time -->
+      <div class="bg-slate-900/80 rounded-2xl p-4 sm:p-5 border border-slate-800 flex flex-col justify-between">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-sm font-bold text-white flex items-center gap-2">
+              <i class="fa-solid fa-chart-line text-sky-400"></i>
+              Dinamika Gaya Kuasa & Beban vs Waktu
+            </h2>
+            <p class="text-xs text-slate-400 mt-0.5">Pantauan gaya penarikan tali (F) dan kestabilan beban (W)</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="flex items-center gap-1 text-[11px] text-sky-400 font-medium">
+              <span class="w-2 h-2 rounded-full bg-sky-400"></span> F (N)
+            </span>
+            <span class="flex items-center gap-1 text-[11px] text-amber-400 font-medium">
+              <span class="w-2 h-2 rounded-full bg-amber-400"></span> W (N)
+            </span>
+          </div>
+        </div>
+
+        <div class="relative h-64 sm:h-72 w-full">
+          <canvas id="forceChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Chart 2: Displacement & Mechanical Advantage vs Time -->
+      <div class="bg-slate-900/80 rounded-2xl p-4 sm:p-5 border border-slate-800 flex flex-col justify-between">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-sm font-bold text-white flex items-center gap-2">
+              <i class="fa-solid fa-arrows-up-down text-purple-400"></i>
+              Kinematika & Keuntungan Mekanis
+            </h2>
+            <p class="text-xs text-slate-400 mt-0.5">Grafik perpindahan beban (Δs) dan rasio KM secara realtime</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="flex items-center gap-1 text-[11px] text-purple-400 font-medium">
+              <span class="w-2 h-2 rounded-full bg-purple-400"></span> Δs (cm)
+            </span>
+            <span class="flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
+              <span class="w-2 h-2 rounded-full bg-emerald-400"></span> KM (x)
+            </span>
+          </div>
+        </div>
+
+        <div class="relative h-64 sm:h-72 w-full">
+          <canvas id="dispKmChart"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- LOWER GRID: LIVE TELEMETRY LOG & EXPERIMENTAL SUMMARY -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      
+      <!-- Live Packet Log Table -->
+      <div class="lg:col-span-2 bg-slate-900/80 rounded-2xl p-4 sm:p-5 border border-slate-800">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+            <i class="fa-solid fa-terminal text-slate-400"></i>
+            Log Telemetri Real-Time (Verified Packets)
+          </h3>
+          <span class="text-[11px] text-slate-400 font-mono">
+            Total Diterima: <span id="packetCountBadge" class="text-sky-400 font-bold">0</span> pkt
+          </span>
+        </div>
+
+        <div class="overflow-x-auto max-h-64 border border-slate-800/80 rounded-xl">
+          <table class="w-full text-left text-xs text-slate-300 font-mono">
+            <thead class="bg-slate-950/90 text-slate-400 sticky top-0 border-b border-slate-800">
+              <tr>
+                <th class="py-2 px-3">Waktu</th>
+                <th class="py-2 px-3">F (N)</th>
+                <th class="py-2 px-3">W (N)</th>
+                <th class="py-2 px-3">KM</th>
+                <th class="py-2 px-3">Δs (cm)</th>
+                <th class="py-2 px-3">Usaha (J)</th>
+                <th class="py-2 px-3">RSSI</th>
+              </tr>
+            </thead>
+            <tbody id="telemetryTableBody" class="divide-y divide-slate-800/50">
+              <tr>
+                <td colspan="7" class="py-6 text-center text-slate-500 italic">
+                  Menunggu koneksi MQTT & data telemetri dari ESP32...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Physics Calculation & Formula Card -->
+      <div class="bg-slate-900/80 rounded-2xl p-4 sm:p-5 border border-slate-800 flex flex-col justify-between">
+        <div>
+          <h3 class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2 mb-3">
+            <i class="fa-solid fa-square-root-variable text-sky-400"></i>
+            Rumus & Konsep Fisika Katrol
+          </h3>
+          
+          <div class="space-y-3 text-xs text-slate-300">
+            <div class="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80">
+              <div class="font-semibold text-emerald-400 flex justify-between">
+                <span>Keuntungan Mekanis (KM)</span>
+                <span class="font-mono">KM = W / F</span>
+              </div>
+              <p class="text-[11px] text-slate-400 mt-1">
+                Katrol tetap KM ≈ 1. Katrol bebas KM ≈ 2. Sistem katrol ganda/majemuk KM = n (jumlah tali penyangga beban).
+              </p>
+            </div>
+
+            <div class="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80">
+              <div class="font-semibold text-pink-400 flex justify-between">
+                <span>Usaha Mekanik (W)</span>
+                <span class="font-mono">W = F × Δs</span>
+              </div>
+              <p class="text-[11px] text-slate-400 mt-1">
+                Energi yang dibutuhkan untuk memindahkan beban sejauh perpindahan Δs dalam meter (N·m = Joule).
+              </p>
+            </div>
+
+            <div class="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80">
+              <div class="font-semibold text-sky-400 flex justify-between">
+                <span>Hukum Kekekalan Energi</span>
+                <span class="font-mono">W_in = W_out</span>
+              </div>
+              <p class="text-[11px] text-slate-400 mt-1">
+                Keuntungan mekanis memperkecil gaya kuasa (F), namun jarak tarik tali (s_kuasa) bertambah sebanding dengan KM!
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Status Diagnostics -->
+        <div class="pt-4 border-t border-slate-800/80 mt-3 grid grid-cols-2 gap-2 text-[11px] font-mono">
+          <div class="bg-slate-950 p-2 rounded-lg border border-slate-800">
+            <span class="text-slate-400 block text-[10px]">RAW HX711 ADC:</span>
+            <span id="diagRawAdc" class="text-slate-200 font-bold">-</span>
+          </div>
+          <div class="bg-slate-950 p-2 rounded-lg border border-slate-800">
+            <span class="text-slate-400 block text-[10px]">WiFi RSSI / Sinyal:</span>
+            <span id="diagRssi" class="text-slate-200 font-bold">-</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- FOOTER -->
+  <footer class="border-t border-slate-800/80 bg-slate-900/60 py-4 px-4 text-xs text-slate-400">
+    <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-sky-500"></span>
+        <span class="font-semibold text-slate-300">KatroKit Hardware Workbench</span>
+        <span>• ESP32 Physics Experiment System</span>
+      </div>
+      <div class="flex items-center gap-4 text-slate-500">
+        <span>HiveMQ WebSocket MQTT</span>
+        <span>•</span>
+        <span id="systemClock" class="font-mono text-slate-400">--:--:--</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- SETTINGS MODAL -->
+  <div id="settingsModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl p-6 relative">
+      <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+        <h3 class="text-base font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-sliders text-sky-400"></i>
+          Konfigurasi Koneksi & Keamanan
+        </h3>
+        <button id="btnCloseSettings" class="text-slate-400 hover:text-white p-1 rounded-lg">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <form id="settingsForm" class="space-y-4 mt-4">
+        <!-- Broker WebSocket URL -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Broker WebSocket URL (WSS)</label>
+          <input type="text" id="cfgBrokerUrl" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 font-mono text-xs focus:ring-2 focus:ring-sky-500 focus:outline-none" placeholder="wss://broker.hivemq.com:8884/mqtt" required />
+          <p class="text-[11px] text-slate-500 mt-1">HiveMQ Public Broker WebSocket port WSS: <code>8884</code></p>
+        </div>
+
+        <!-- Device ID -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Device ID ESP32</label>
+          <input type="text" id="cfgDeviceId" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 font-mono text-xs focus:ring-2 focus:ring-sky-500 focus:outline-none" placeholder="katrokit_01" required />
+          <p class="text-[11px] text-slate-500 mt-1">Digunakan untuk topic: <code>katrokit/{DEVICE_ID}/telemetry</code></p>
+        </div>
+
+        <!-- Secret Token -->
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label class="block text-xs font-semibold text-slate-300">Secret Token PIN (Autentikasi ESP32)</label>
+            <span class="text-[10px] text-emerald-400 flex items-center gap-1"><i class="fa-solid fa-shield"></i> Validasi Aktif</span>
+          </div>
+          <div class="relative">
+            <input type="password" id="cfgSecretToken" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 font-mono text-xs focus:ring-2 focus:ring-sky-500 focus:outline-none pr-10" placeholder="katrokit2026" required />
+            <button type="button" id="btnToggleTokenVisibility" class="absolute right-2.5 top-2 text-slate-400 hover:text-white text-xs">
+              <i class="fa-solid fa-eye" id="tokenEyeIcon"></i>
+            </button>
+          </div>
+          <p class="text-[11px] text-slate-500 mt-1">Dashboard akan menolak dan memperingatkan setiap payload yang token-nya tidak cocok.</p>
+        </div>
+
+        <!-- Custom Command Test -->
+        <div class="pt-2 border-t border-slate-800">
+          <label class="block text-xs font-semibold text-slate-400 mb-1">Publish Test Command (JSON ke /cmd)</label>
+          <div class="flex gap-2">
+            <input type="text" id="customCmdInput" placeholder='{"cmd":"tare"}' class="flex-1 px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 font-mono text-xs focus:outline-none" />
+            <button type="button" id="btnSendCustomCmd" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-sky-400 border border-slate-700 rounded-lg text-xs font-medium">Kirim</button>
+          </div>
+        </div>
+
+        <!-- Modal Actions -->
+        <div class="flex items-center justify-between pt-4 border-t border-slate-800">
+          <button type="button" id="btnResetSettings" class="text-xs text-rose-400 hover:text-rose-300">
+            Reset ke Default
+          </button>
+          <div class="flex gap-2">
+            <button type="button" id="btnCancelSettings" class="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium">Batal</button>
+            <button type="submit" class="px-4 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shadow-md shadow-sky-600/30">Simpan & Terapkan</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION POPUP -->
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- JAVASCRIPT APPLICATION LOGIC -->
+  <script>
+    // ==========================================
+    // 1. CONFIGURATION & STATE MANAGEMENT
+    // ==========================================
+    const DEFAULT_CONFIG = {
+      brokerUrl: 'wss://broker.hivemq.com:8884/mqtt',
+      deviceId: 'katrokit_01',
+      secretToken: 'katrokit2026',
+      maxPoints: 40
+    };
+
+    // Load persisted settings or fallback
+    let appConfig = { ...DEFAULT_CONFIG };
+    try {
+      const saved = localStorage.getItem('katrokit_dashboard_cfg');
+      if (saved) {
+        appConfig = Object.assign({}, DEFAULT_CONFIG, JSON.parse(saved));
+      }
+    } catch (e) {
+      console.warn('Failed to parse localStorage settings', e);
+    }
+
+    let mqttClient = null;
+    let isStreamPaused = false;
+    let packetCount = 0;
+    let experimentRecords = []; // For CSV export
+    let lastForceMax = 0;
+
+    // Toast helper
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      
+      let bg = 'bg-slate-900 border-slate-700 text-slate-200';
+      let icon = '<i class="fa-solid fa-circle-info text-sky-400"></i>';
+
+      if (type === 'success') {
+        bg = 'bg-emerald-950/95 border-emerald-700 text-emerald-200';
+        icon = '<i class="fa-solid fa-circle-check text-emerald-400"></i>';
+      } else if (type === 'warning') {
+        bg = 'bg-amber-950/95 border-amber-700 text-amber-200';
+        icon = '<i class="fa-solid fa-triangle-exclamation text-amber-400"></i>';
+      } else if (type === 'error') {
+        bg = 'bg-rose-950/95 border-rose-700 text-rose-200';
+        icon = '<i class="fa-solid fa-circle-xmark text-rose-400"></i>';
+      }
+
+      toast.className = `flex items-center gap-2 px-3.5 py-2.5 rounded-xl border shadow-xl text-xs font-medium transition-all duration-300 transform translate-y-2 opacity-0 pointer-events-auto ${bg}`;
+      toast.innerHTML = `${icon}<span>${message}</span>`;
+      container.appendChild(toast);
+
+      // Trigger transition
+      setTimeout(() => {
+        toast.classList.remove('translate-y-2', 'opacity-0');
+      }, 10);
+
+      // Dismiss after 3.5s
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-2');
+        setTimeout(() => toast.remove(), 300);
+      }, 3500);
+    }
+
+    // Update Header labels
+    function updateHeaderInfo() {
+      document.getElementById('headerDeviceLabel').textContent = `ID: ${appConfig.deviceId}`;
+      document.getElementById('topicSubLabel').textContent = `katrokit/${appConfig.deviceId}/telemetry`;
+    }
+
+    // ==========================================
+    // 2. CHART.JS INITIALIZATION
+    // ==========================================
+    const chartTimeLabels = [];
+    const forceDataPoints = [];
+    const weightDataPoints = [];
+    const dispDataPoints = [];
+    const kmDataPoints = [];
+
+    // Common Chart options
+    const commonChartOptions = {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: {
+        duration: 250,
+      },
+      interaction: {
+        mode: 'index',
+        intersect: false,
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#0f172a',
+          titleColor: '#e2e8f0',
+          bodyColor: '#cbd5e1',
+          borderColor: '#334155',
+          borderWidth: 1,
+          padding: 8,
+          bodyFont: { family: 'JetBrains Mono', size: 11 }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(51, 65, 85, 0.3)' },
+          ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 10 }, maxRotation: 0 }
+        },
+        y: {
+          grid: { color: 'rgba(51, 65, 85, 0.3)' },
+          ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 10 } }
+        }
+      }
+    };
+
+    // Chart 1: Force & Weight
+    const ctxForce = document.getElementById('forceChart').getContext('2d');
+    const forceChart = new Chart(ctxForce, {
+      type: 'line',
+      data: {
+        labels: chartTimeLabels,
+        datasets: [
+          {
+            label: 'Gaya Kuasa (F)',
+            data: forceDataPoints,
+            borderColor: '#38bdf8',
+            backgroundColor: 'rgba(56, 189, 248, 0.08)',
+            borderWidth: 2.2,
+            tension: 0.3,
+            fill: true,
+            pointRadius: 2,
+            pointHoverRadius: 5,
+          },
+          {
+            label: 'Berat Beban (W)',
+            data: weightDataPoints,
+            borderColor: '#f59e0b',
+            backgroundColor: 'transparent',
+            borderWidth: 1.8,
+            borderDash: [4, 4],
+            tension: 0.2,
+            pointRadius: 1,
+          }
+        ]
+      },
+      options: {
+        ...commonChartOptions,
+        scales: {
+          ...commonChartOptions.scales,
+          y: {
+            ...commonChartOptions.scales.y,
+            title: { display: true, text: 'Newton (N)', color: '#94a3b8', font: { size: 10 } }
+          }
+        }
+      }
+    });
+
+    // Chart 2: Displacement & KM
+    const ctxDispKm = document.getElementById('dispKmChart').getContext('2d');
+    const dispKmChart = new Chart(ctxDispKm, {
+      type: 'line',
+      data: {
+        labels: chartTimeLabels,
+        datasets: [
+          {
+            label: 'Perpindahan (Δs cm)',
+            data: dispDataPoints,
+            borderColor: '#a855f7',
+            backgroundColor: 'rgba(168, 85, 247, 0.08)',
+            borderWidth: 2,
+            tension: 0.3,
+            yAxisID: 'y',
+            pointRadius: 2,
+          },
+          {
+            label: 'Keuntungan Mekanis (KM)',
+            data: kmDataPoints,
+            borderColor: '#10b981',
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            tension: 0.2,
+            yAxisID: 'y1',
+            pointRadius: 1,
+          }
+        ]
+      },
+      options: {
+        ...commonChartOptions,
+        scales: {
+          x: commonChartOptions.scales.x,
+          y: {
+            type: 'linear',
+            display: true,
+            position: 'left',
+            grid: { color: 'rgba(51, 65, 85, 0.3)' },
+            ticks: { color: '#a855f7', font: { family: 'JetBrains Mono', size: 10 } },
+            title: { display: true, text: 'Δs (cm)', color: '#a855f7', font: { size: 10 } }
+          },
+          y1: {
+            type: 'linear',
+            display: true,
+            position: 'right',
+            grid: { drawOnChartArea: false },
+            ticks: { color: '#10b981', font: { family: 'JetBrains Mono', size: 10 } },
+            title: { display: true, text: 'KM (rasio)', color: '#10b981', font: { size: 10 } }
+          }
+        }
+      }
+    });
+
+    // ==========================================
+    // 3. MQTT COMMUNICATION & EVENT HANDLERS
+    // ==========================================
+    function setConnectionStatus(status, text) {
+      const pill = document.getElementById('connPill');
+      const dot = document.getElementById('connDot');
+      const label = document.getElementById('connText');
+
+      label.textContent = text;
+      dot.className = 'w-2.5 h-2.5 rounded-full';
+
+      if (status === 'connected') {
+        dot.classList.add('bg-emerald-400', 'pulse-glow');
+        pill.className = 'flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-950/70 text-emerald-300 border border-emerald-700/80';
+      } else if (status === 'connecting') {
+        dot.classList.add('bg-amber-400', 'animate-ping');
+        pill.className = 'flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-amber-950/70 text-amber-300 border border-amber-700/80';
+      } else {
+        dot.classList.add('bg-rose-500');
+        pill.className = 'flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-slate-800 text-slate-300 border border-slate-700';
+      }
+    }
+
+    function connectMqtt() {
+      if (mqttClient) {
+        try {
+          mqttClient.end(true);
+        } catch (e) {}
+      }
+
+      setConnectionStatus('connecting', 'Menghubungkan...');
+      showToast(`Menyambung ke MQTT ${appConfig.brokerUrl}...`, 'info');
+
+      const clientId = `katrokit_web_${Math.random().toString(16).substring(2, 10)}`;
+      
+      const options = {
+        clientId: clientId,
+        clean: true,
+        connectTimeout: 8000,
+        reconnectPeriod: 4000,
+        keepalive: 30
+      };
+
+      try {
+        mqttClient = mqtt.connect(appConfig.brokerUrl, options);
+      } catch (err) {
+        console.error('MQTT Connect Exception:', err);
+        setConnectionStatus('disconnected', 'Gagal Koneksi');
+        showToast('Koneksi WebSocket gagal: ' + err.message, 'error');
+        return;
+      }
+
+      mqttClient.on('connect', () => {
+        setConnectionStatus('connected', 'Terkoneksi');
+        showToast(`Tersambung ke HiveMQ broker!`, 'success');
+
+        const subTopic = `katrokit/${appConfig.deviceId}/telemetry`;
+        mqttClient.subscribe(subTopic, { qos: 0 }, (err) => {
+          if (!err) {
+            console.log(`Subscribed to topic: ${subTopic}`);
+          } else {
+            console.error(`Subscribe error:`, err);
+            showToast('Gagal subscribe ke topik telemetri', 'error');
+          }
+        });
+      });
+
+      mqttClient.on('message', (topic, message) => {
+        handleIncomingMessage(topic, message.toString());
+      });
+
+      mqttClient.on('error', (err) => {
+        console.warn('MQTT error:', err);
+        setConnectionStatus('disconnected', 'Error');
+      });
+
+      mqttClient.on('close', () => {
+        setConnectionStatus('disconnected', 'Terputus');
+      });
+
+      mqttClient.on('offline', () => {
+        setConnectionStatus('disconnected', 'Offline');
+      });
+    }
+
+    // Publish Command to ESP32
+    function sendCommand(cmdPayload) {
+      if (!mqttClient || !mqttClient.connected) {
+        showToast('Gagal: MQTT belum terkoneksi!', 'warning');
+        return;
+      }
+      const cmdTopic = `katrokit/${appConfig.deviceId}/cmd`;
+      const payload = {
+        token: appConfig.secretToken,
+        ...cmdPayload
+      };
+      const jsonStr = JSON.stringify(payload);
+      mqttClient.publish(cmdTopic, jsonStr, { qos: 0 }, (err) => {
+        if (!err) {
+          showToast(`Perintah '${cmdPayload.cmd || 'cmd'}' dikirim ke ESP32`, 'success');
+        } else {
+          showToast('Gagal mem-publish perintah: ' + err.message, 'error');
+        }
+      });
+    }
+
+    // ==========================================
+    // 4. DATA VERIFICATION & SECURITY
+    // ==========================================
+    function handleIncomingMessage(topic, payloadString) {
+      let data;
+      try {
+        data = JSON.parse(payloadString);
+      } catch (e) {
+        console.warn('Invalid JSON packet received:', payloadString);
+        return;
+      }
+
+      // Security check: Validate secret token
+      if (!data.token || data.token !== appConfig.secretToken) {
+        console.warn('Security alert: Mismatched token received!', data.token);
+        const alertBar = document.getElementById('securityAlertBar');
+        alertBar.classList.remove('hidden');
+        showToast('Data diblokir: Secret Token ESP32 tidak cocok!', 'warning');
+        return;
+      }
+
+      // If stream is paused by user, drop UI chart update
+      if (isStreamPaused) return;
+
+      packetCount++;
+      document.getElementById('packetCountBadge').textContent = packetCount;
+
+      processTelemetryData(data);
+    }
+
+    // ==========================================
+    // 5. TELEMETRY DATA PROCESSING & UI UPDATE
+    // ==========================================
+    function processTelemetryData(data) {
+      const now = new Date();
+      const timeStr = now.toTimeString().split(' ')[0]; // HH:MM:SS
+
+      // Safe extraction
+      const f = typeof data.f === 'number' ? data.f : parseFloat(data.f || 0);
+      const f_max = typeof data.f_max === 'number' ? data.f_max : parseFloat(data.f_max || 0);
+      const w_n = typeof data.w_n === 'number' ? data.w_n : parseFloat(data.w_n || 0);
+      const w_g = typeof data.w_g === 'number' ? data.w_g : parseFloat(data.w_g || 0);
+      const km = typeof data.km === 'number' ? data.km : parseFloat(data.km || 0);
+      const dist = typeof data.dist === 'number' ? data.dist : parseFloat(data.dist || 0);
+      const disp = typeof data.disp === 'number' ? data.disp : parseFloat(data.disp || 0);
+      const work = typeof data.work === 'number' ? data.work : parseFloat(data.work || 0);
+      const raw = data.raw !== undefined ? data.raw : '-';
+      const rssi = data.rssi !== undefined ? data.rssi : '-';
+      const cal = data.cal;
+
+      // Update Metric Cards
+      document.getElementById('valForce').textContent = f.toFixed(2);
+      document.getElementById('valForceMax').textContent = (f_max > 0 ? f_max : Math.max(lastForceMax, f)).toFixed(2);
+      lastForceMax = Math.max(lastForceMax, f, f_max);
+
+      document.getElementById('valWeightN').textContent = w_n.toFixed(2);
+      document.getElementById('valWeightG').textContent = w_g.toFixed(1);
+      
+      const kmEl = document.getElementById('valKM');
+      kmEl.textContent = km.toFixed(2);
+      
+      // Dynamic KM color badge & description
+      const kmBadge = document.getElementById('badgeKMDesc');
+      if (km >= 1.7) {
+        kmBadge.textContent = 'Katrol Ganda / Majemuk';
+        kmBadge.className = 'font-semibold text-emerald-400';
+      } else if (km >= 0.8 && km < 1.7) {
+        kmBadge.textContent = 'Katrol Tetap / Standar';
+        kmBadge.className = 'font-semibold text-sky-400';
+      } else {
+        kmBadge.textContent = 'Beban Ringan / Nol';
+        kmBadge.className = 'font-semibold text-slate-400';
+      }
+
+      document.getElementById('valDisp').textContent = disp.toFixed(1);
+      document.getElementById('valDist').textContent = dist.toFixed(1);
+
+      document.getElementById('valWork').textContent = work.toFixed(3);
+      document.getElementById('valWorkMili').textContent = (work * 1000).toFixed(1);
+
+      // Diagnostics
+      document.getElementById('diagRawAdc').textContent = raw;
+      document.getElementById('diagRssi').textContent = `${rssi} dBm`;
+      document.getElementById('lastSeenLabel').textContent = timeStr;
+
+      // Append to records for CSV export
+      experimentRecords.push({
+        time: now.toISOString(),
+        time_str: timeStr,
+        force: f,
+        weight: w_n,
+        weight_g: w_g,
+        km: km,
+        disp: disp,
+        dist: dist,
+        work: work,
+        raw: raw,
+        rssi: rssi
+      });
+
+      // Update Chart Datasets (Rolling window)
+      chartTimeLabels.push(timeStr);
+      forceDataPoints.push(f);
+      weightDataPoints.push(w_n);
+      dispDataPoints.push(disp);
+      kmDataPoints.push(km);
+
+      if (chartTimeLabels.length > appConfig.maxPoints) {
+        chartTimeLabels.shift();
+        forceDataPoints.shift();
+        weightDataPoints.shift();
+        dispDataPoints.shift();
+        kmDataPoints.shift();
+      }
+
+      forceChart.update('none');
+      dispKmChart.update('none');
+
+      // Update Log Table (keep latest 10 rows)
+      updateLogTable(timeStr, f, w_n, km, disp, work, rssi);
+    }
+
+    function updateLogTable(time, f, w, km, disp, work, rssi) {
+      const tbody = document.getElementById('telemetryTableBody');
+      if (tbody.children.length === 1 && tbody.children[0].children.length === 1) {
+        tbody.innerHTML = '';
+      }
+
+      const tr = document.createElement('tr');
+      tr.className = 'hover:bg-slate-800/40 transition-colors';
+      tr.innerHTML = `
+        <td class="py-1.5 px-3 text-slate-400">${time}</td>
+        <td class="py-1.5 px-3 text-sky-400 font-semibold">${f.toFixed(2)}</td>
+        <td class="py-1.5 px-3 text-amber-400">${w.toFixed(2)}</td>
+        <td class="py-1.5 px-3 text-emerald-400 font-semibold">${km.toFixed(2)}</td>
+        <td class="py-1.5 px-3 text-purple-400">${disp.toFixed(1)}</td>
+        <td class="py-1.5 px-3 text-pink-400">${work.toFixed(3)}</td>
+        <td class="py-1.5 px-3 text-slate-400">${rssi}</td>
+      `;
+
+      tbody.insertBefore(tr, tbody.firstChild);
+
+      // Keep maximum 15 rows
+      while (tbody.children.length > 15) {
+        tbody.removeChild(tbody.lastChild);
+      }
+    }
+
+    // ==========================================
+    // 6. CSV EXPORTER (LAB REPORT GENERATOR)
+    // ==========================================
+    function exportToCsv() {
+      if (experimentRecords.length === 0) {
+        showToast('Belum ada data eksperimen untuk diekspor!', 'warning');
+        return;
+      }
+
+      let csv = 'Timestamp,Jam,Gaya_Kuasa_N,Beban_N,Massa_Beban_g,Keuntungan_Mekanis_KM,Perpindahan_cm,Jarak_Sensor_cm,Usaha_Joule,Raw_ADC,RSSI_dBm\n';
+
+      experimentRecords.forEach(r => {
+        csv += `"${r.time}","${r.time_str}",${r.force},${r.weight},${r.weight_g},${r.km},${r.disp},${r.dist},${r.work},${r.raw},${r.rssi}\n`;
+      });
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const timestampStr = new Date().toISOString().replace(/[:.]/g, '-');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `katrokit_physics_data_${appConfig.deviceId}_${timestampStr}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      showToast(`Berhasil mengekspor ${experimentRecords.length} data ke CSV!`, 'success');
+    }
+
+    // ==========================================
+    // 7. USER INTERFACE INTERACTIONS
+    // ==========================================
+
+    // Tare button
+    document.getElementById('btnTare').addEventListener('click', () => {
+      sendCommand({ cmd: 'tare' });
+    });
+
+    // Pause/Resume stream
+    const btnPause = document.getElementById('btnPauseStream');
+    const pauseIcon = document.getElementById('pauseIcon');
+    const pauseText = document.getElementById('pauseText');
+    btnPause.addEventListener('click', () => {
+      isStreamPaused = !isStreamPaused;
+      if (isStreamPaused) {
+        pauseIcon.className = 'fa-solid fa-play text-amber-400';
+        pauseText.textContent = 'Resume';
+        btnPause.classList.add('border-amber-500/50', 'bg-amber-950/30', 'text-amber-200');
+        showToast('Streaming data dijeda (paused)', 'warning');
+      } else {
+        pauseIcon.className = 'fa-solid fa-pause text-slate-400';
+        pauseText.textContent = 'Pause';
+        btnPause.classList.remove('border-amber-500/50', 'bg-amber-950/30', 'text-amber-200');
+        showToast('Streaming data dilanjutkan', 'info');
+      }
+    });
+
+    // Reset Charts
+    document.getElementById('btnClearCharts').addEventListener('click', () => {
+      chartTimeLabels.length = 0;
+      forceDataPoints.length = 0;
+      weightDataPoints.length = 0;
+      dispDataPoints.length = 0;
+      kmDataPoints.length = 0;
+      lastForceMax = 0;
+      document.getElementById('valForceMax').textContent = '0.00';
+      forceChart.update();
+      dispKmChart.update();
+      showToast('Grafik berhasil dibersihkan', 'info');
+    });
+
+    // Export CSV button
+    document.getElementById('btnExportCsv').addEventListener('click', exportToCsv);
+
+    // Dismiss Alert
+    document.getElementById('btnDismissAlert').addEventListener('click', () => {
+      document.getElementById('securityAlertBar').classList.add('hidden');
+    });
+
+    // Settings Modal
+    const settingsModal = document.getElementById('settingsModal');
+    const btnOpenSettings = document.getElementById('btnOpenSettings');
+    const btnCloseSettings = document.getElementById('btnCloseSettings');
+    const btnCancelSettings = document.getElementById('btnCancelSettings');
+
+    function openSettings() {
+      document.getElementById('cfgBrokerUrl').value = appConfig.brokerUrl;
+      document.getElementById('cfgDeviceId').value = appConfig.deviceId;
+      document.getElementById('cfgSecretToken').value = appConfig.secretToken;
+      settingsModal.classList.remove('hidden');
+    }
+
+    function closeSettings() {
+      settingsModal.classList.add('hidden');
+    }
+
+    btnOpenSettings.addEventListener('click', openSettings);
+    btnCloseSettings.addEventListener('click', closeSettings);
+    btnCancelSettings.addEventListener('click', closeSettings);
+
+    // Toggle password visibility
+    const btnToggleToken = document.getElementById('btnToggleTokenVisibility');
+    const tokenInput = document.getElementById('cfgSecretToken');
+    const tokenEyeIcon = document.getElementById('tokenEyeIcon');
+    btnToggleToken.addEventListener('click', () => {
+      if (tokenInput.type === 'password') {
+        tokenInput.type = 'text';
+        tokenEyeIcon.className = 'fa-solid fa-eye-slash';
+      } else {
+        tokenInput.type = 'password';
+        tokenEyeIcon.className = 'fa-solid fa-eye';
+      }
+    });
+
+    // Save Settings
+    document.getElementById('settingsForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const prevBroker = appConfig.brokerUrl;
+      const prevDevice = appConfig.deviceId;
+
+      appConfig.brokerUrl = document.getElementById('cfgBrokerUrl').value.trim();
+      appConfig.deviceId = document.getElementById('cfgDeviceId').value.trim();
+      appConfig.secretToken = document.getElementById('cfgSecretToken').value.trim();
+
+      localStorage.setItem('katrokit_dashboard_cfg', JSON.stringify(appConfig));
+      updateHeaderInfo();
+      closeSettings();
+      showToast('Pengaturan tersimpan!', 'success');
+
+      // Reconnect if broker or device changed
+      if (prevBroker !== appConfig.brokerUrl || prevDevice !== appConfig.deviceId) {
+        connectMqtt();
+      }
+    });
+
+    // Reset settings
+    document.getElementById('btnResetSettings').addEventListener('click', () => {
+      if (confirm('Kembalikan pengaturan ke default pabrik?')) {
+        appConfig = { ...DEFAULT_CONFIG };
+        localStorage.removeItem('katrokit_dashboard_cfg');
+        document.getElementById('cfgBrokerUrl').value = appConfig.brokerUrl;
+        document.getElementById('cfgDeviceId').value = appConfig.deviceId;
+        document.getElementById('cfgSecretToken').value = appConfig.secretToken;
+        updateHeaderInfo();
+        showToast('Pengaturan dikembalikan ke default', 'info');
+      }
+    });
+
+    // Send custom command test from modal
+    document.getElementById('btnSendCustomCmd').addEventListener('click', () => {
+      const input = document.getElementById('customCmdInput').value.trim();
+      if (!input) return;
+      try {
+        const parsed = JSON.parse(input);
+        sendCommand(parsed);
+      } catch (e) {
+        showToast('Format JSON perintah tidak valid', 'error');
+      }
+    });
+
+    // Reconnect Manual Button
+    document.getElementById('btnReconnect').addEventListener('click', connectMqtt);
+
+    // Live clock in footer
+    setInterval(() => {
+      const d = new Date();
+      document.getElementById('systemClock').textContent = d.toTimeString().split(' ')[0];
+    }, 1000);
+
+    // ==========================================
+    // 8. BOOTSTRAP APPLICATION
+    // ==========================================
+    window.addEventListener('DOMContentLoaded', () => {
+      updateHeaderInfo();
+      connectMqtt();
+    });
+  </script>
+</body>
+</html>

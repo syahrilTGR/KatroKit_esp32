@@ -34,6 +34,8 @@
 #include <WiFi.h>
 #include <WiFiManager.h>
 #include <ArduinoOTA.h>
+#include <PubSubClient.h>
+#include <ArduinoJson.h>
 
 // ---------- Pin ----------
 const int HX_DT   = 19;
@@ -75,6 +77,19 @@ enum WiFiState {
 WiFiState wifiState = WIFI_CONNECTING;
 unsigned long wifiStartTime = 0;
 unsigned long wifiNotifStart = 0;
+
+// ---------- MQTT & Security Token (HiveMQ Public) ----------
+const char* MQTT_BROKER    = "broker.hivemq.com";
+const int   MQTT_PORT      = 1883;
+String      deviceId       = "katrokit_01";
+String      secretToken    = "katrokit2026";
+String      topicTelemetry = "katrokit/katrokit_01/telemetry";
+String      topicCmd       = "katrokit/katrokit_01/cmd";
+
+WiFiClient espClient;
+PubSubClient mqttClient(espClient);
+unsigned long lastMqttReconnect = 0;
+unsigned long lastMqttPublish   = 0;
 
 // ---------- HX711 & Kalibrasi ----------
 HX711 scale;
@@ -876,6 +891,91 @@ void initWiFiAsync() {
   Serial.println("[WIFI] Memulai pencarian WiFi tersimpan di background (timeout 15s)...");
 }
 
+// Handler pesan MQTT Command (Remote Control)
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  char msg[256];
+  if (length >= sizeof(msg)) length = sizeof(msg) - 1;
+  memcpy(msg, payload, length);
+  msg[length] = '\0';
+  Serial.printf("[MQTT CMD] Pesan diterima di [%s]: %s\n", topic, msg);
+
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, msg);
+  if (err) {
+    Serial.println("[MQTT CMD] Gagal parse JSON.");
+    return;
+  }
+
+  const char* token = doc["token"];
+  if (!token || String(token) != secretToken) {
+    Serial.println("[MQTT SECURITY] Token salah/tidak sah! Perintah ditolak.");
+    return;
+  }
+
+  const char* cmd = doc["cmd"];
+  if (cmd) {
+    if (strcmp(cmd, "tare") == 0) {
+      tareForce();
+      zeroDistance();
+      Serial.println("[MQTT] Perintah TARE jarak jauh sukses dieksekusi!");
+      showMsg("REMOTE TARE (WEB)", "Gaya & Jarak = 0", "", 1200);
+    } else if (strcmp(cmd, "reset_max") == 0) {
+      forceMax = 0;
+      Serial.println("[MQTT] Fmax direset via remote!");
+    }
+  }
+}
+
+// Menjaga koneksi MQTT ke HiveMQ secara non-blocking
+void maintainMQTT() {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  if (!mqttClient.connected()) {
+    unsigned long now = millis();
+    if (now - lastMqttReconnect >= 5000) { // Coba koneksi tiap 5 detik (non-blocking)
+      lastMqttReconnect = now;
+      Serial.print("[MQTT] Menghubungkan ke HiveMQ... ");
+      String clientId = "ESP32_KatroKit_" + String((uint32_t)ESP.getEfuseMac(), HEX);
+      if (mqttClient.connect(clientId.c_str())) {
+        Serial.println("TERHUBUNG!");
+        mqttClient.subscribe(topicCmd.c_str());
+        Serial.printf("[MQTT] Subscribed to: %s\n", topicCmd.c_str());
+      } else {
+        Serial.printf("Gagal (rc=%d). Coba lagi 5s.\n", mqttClient.state());
+      }
+    }
+  } else {
+    mqttClient.loop();
+  }
+}
+
+// Mengirimkan data telemetri ke HiveMQ (5 Hz)
+void publishTelemetry() {
+  if (!mqttClient.connected()) return;
+  unsigned long now = millis();
+  if (now - lastMqttPublish < 200) return; // 5 Hz update rate
+  lastMqttPublish = now;
+
+  JsonDocument doc;
+  doc["token"] = secretToken;
+  doc["device_id"] = deviceId;
+  doc["f"] = serialized(String(force, 2));
+  doc["f_max"] = serialized(String(forceMax, 2));
+  doc["w_n"] = serialized(String(bebanW, 2));
+  doc["w_g"] = serialized(String(bebanGram, 1));
+  doc["km"] = serialized(String(km, 2));
+  doc["dist"] = serialized(String(distCm, 1));
+  doc["disp"] = serialized(String(fabs(distCm - distRef), 1));
+  doc["work"] = serialized(String(usaha, 2));
+  doc["cal"] = isCalibrated;
+  doc["raw"] = lastRaw;
+  doc["rssi"] = WiFi.RSSI();
+
+  char buffer[384];
+  size_t n = serializeJson(doc, buffer);
+  mqttClient.publish(topicTelemetry.c_str(), buffer, n);
+}
+
 void setup() {
   Serial.begin(115200);
   Serial.setTimeout(50);
@@ -903,6 +1003,15 @@ void setup() {
   initWiFiAsync();
 
   prefs.begin("katrokit", false);
+  deviceId = prefs.getString("dev_id", "katrokit_01");
+  secretToken = prefs.getString("token", "katrokit2026");
+  topicTelemetry = "katrokit/" + deviceId + "/telemetry";
+  topicCmd = "katrokit/" + deviceId + "/cmd";
+
+  mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
+  mqttClient.setCallback(mqttCallback);
+  mqttClient.setBufferSize(512);
+
   calFactor = prefs.getFloat("cal", 1.0f);
   forceSign = prefs.getFloat("sign", -1.0f);
   bebanGram = prefs.getFloat("beban", 240.0f);
@@ -942,6 +1051,10 @@ void setup() {
 }
 
 void loop() {
+  // Layani koneksi MQTT ke HiveMQ & kirim data telemetri (Non-blocking)
+  maintainMQTT();
+  publishTelemetry();
+
   // --- MANAJEMEN WIFI & HOTSPOT ASINKRON (NON-BLOCKING) ---
   if (wifiState == WIFI_CONNECTING) {
     if (WiFi.status() == WL_CONNECTED) {
