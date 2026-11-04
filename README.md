@@ -203,3 +203,4 @@ File desain manufaktur box akrilik (tebal 3 mm) dan layout PCB Matrix tersedia d
 ## 📄 Lisensi
 
 Didistribusikan di bawah lisensi MIT. Silakan gunakan, pelajari, dan kembangkan untuk keperluan praktikum pendidikan dan riset fisika.
+
