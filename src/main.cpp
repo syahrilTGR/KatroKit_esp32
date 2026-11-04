@@ -60,6 +60,10 @@ const uint8_t OLED_ADDR = 0x3C;   // jika layar kosong, coba 0x3D
 Adafruit_SSD1306 display(SCREEN_W, SCREEN_H, &Wire, -1);
 bool oledOk = false;
 
+// ---------- WiFiManager & ArduinoOTA (Non-Blocking) ----------
+WiFiManager wm;
+bool otaStarted = false;
+
 // ---------- HX711 & Kalibrasi ----------
 HX711 scale;
 Preferences prefs;
@@ -391,6 +395,184 @@ void calibrateMulti() {
   showMsg("KALIBRASI MULTI OK", "Tersimpan di Flash", "Alat siap digunakan", 2500);
 }
 
+// Menunggu klik tombol D4 (debounce + non-blocking OTA/WiFi)
+bool waitForButtonClick(unsigned long timeoutMs = 30000) {
+  unsigned long start = millis();
+  // Tunggu tombol dilepas jika masih tertahan
+  while (digitalRead(BTN) == LOW) {
+    delay(10);
+    if (millis() - start > timeoutMs) return false;
+  }
+  delay(80);
+
+  // Tunggu ditekan (LOW)
+  while (digitalRead(BTN) == HIGH) {
+    delay(10);
+    wm.process();
+    if (WiFi.status() == WL_CONNECTED) ArduinoOTA.handle();
+    if (millis() - start > timeoutMs) return false;
+  }
+  delay(50);
+
+  // Tunggu dilepas (HIGH)
+  while (digitalRead(BTN) == LOW) {
+    delay(10);
+    if (millis() - start > timeoutMs) return false;
+  }
+  delay(80);
+  return true;
+}
+
+// Wizard Kalibrasi 2-Titik (0g -> 100g -> 240g) dipandu Layar OLED + Tombol D4
+void calibrateMultiOLED() {
+  Serial.println("\n[KALIBRASI] Memulai Wizard Kalibrasi 2-Titik via Tombol D4...");
+
+  // Konfirmasi Awal (Timeout 5s untuk mencegah salah tekan)
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.println("KALIBRASI 2-TITIK");
+  display.setCursor(0, 16);
+  display.println("Klik D4 utk MULAI");
+  display.setCursor(0, 32);
+  display.println("atau DIAMKAN 5 dtk");
+  display.setCursor(0, 48);
+  display.println("untuk BATAL...");
+  display.display();
+
+  if (!waitForButtonClick(5000)) {
+    Serial.println("[KALIBRASI] Dibatalkan oleh pengguna (timeout 5s).");
+    showMsg("KALIBRASI BATAL", "Kembali ke menu", "", 1200);
+    return;
+  }
+
+  // --- LANGKAH 1: TITIK NOL (KAIT KOSONG) ---
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.println("KALIBRASI (1/3)");
+  display.setCursor(0, 18);
+  display.println("Kait KOSONG (0 g)");
+  display.setCursor(0, 36);
+  display.println("Jangan sentuh tali!");
+  display.setCursor(0, 52);
+  display.println("-> Klik D4 jika siap");
+  display.display();
+
+  if (!waitForButtonClick(30000)) {
+    showMsg("BATAL (TIMEOUT)", "Waktu habis", "", 1500);
+    return;
+  }
+
+  showMsg("MEMPROSES...", "Mengunci Titik 0g", "Mohon tunggu...", 0);
+  delay(500);
+  scale.tare(20);
+  fIdx = 0; fFull = false; forceMax = 0;
+  Serial.println("[OK] Titik 0 g berhasil dikunci (Tare).");
+
+  // --- LANGKAH 2: TITIK TENGAH (100 g) ---
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.println("KALIBRASI (2/3)");
+  display.setCursor(0, 18);
+  display.println("Gantung 100g (2x50g)");
+  display.setCursor(0, 36);
+  display.println("Pastikan beban diam");
+  display.setCursor(0, 52);
+  display.println("-> Klik D4 jika diam");
+  display.display();
+
+  if (!waitForButtonClick(30000)) {
+    showMsg("BATAL (TIMEOUT)", "Waktu habis", "", 1500);
+    return;
+  }
+
+  showMsg("MEMPROSES...", "Membaca 100 g...", "Mohon tunggu...", 0);
+  delay(1200);
+
+  float rawMidF = 0, spreadMid = 0;
+  if (!sampleRaw(rawMidF, spreadMid)) {
+    showMsg("GAGAL!", "Beban goyang/lepas", "Ulangi kalibrasi", 2000);
+    return;
+  }
+  long adjMid = labs((long)rawMidF);
+  if (adjMid < 50) {
+    showMsg("BEBAN TAK TERBACA", "Periksa gantungan", "", 2000);
+    return;
+  }
+  float c1 = (float)adjMid / 100.0f;
+  Serial.printf("[OK] Titik 100g terbaca: ADC=%ld, cal1=%.2f\n", (long)rawMidF, c1);
+
+  // --- LANGKAH 3: TITIK MAKSIMAL (240 g) ---
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.println("KALIBRASI (3/3)");
+  display.setCursor(0, 18);
+  display.println("Gantung 240g (Semua)");
+  display.setCursor(0, 36);
+  display.println("Pastikan beban diam");
+  display.setCursor(0, 52);
+  display.println("-> Klik D4 jika diam");
+  display.display();
+
+  if (!waitForButtonClick(30000)) {
+    showMsg("BATAL (TIMEOUT)", "Waktu habis", "", 1500);
+    return;
+  }
+
+  showMsg("MEMPROSES...", "Membaca 240 g...", "Mohon tunggu...", 0);
+  delay(1200);
+
+  float rawMaxF = 0, spreadMax = 0;
+  if (!sampleRaw(rawMaxF, spreadMax)) {
+    showMsg("GAGAL!", "Beban goyang/lepas", "Ulangi kalibrasi", 2000);
+    return;
+  }
+  long adjMax = labs((long)rawMaxF);
+  if (adjMax <= adjMid + 50) {
+    showMsg("GAGAL!", "ADC tidak bertambah", "Cek berat beban", 2000);
+    return;
+  }
+  float c2 = (float)(adjMax - adjMid) / (240.0f - 100.0f);
+  forceSign = (rawMaxF < 0) ? -1.0f : 1.0f;
+
+  // Simpan hasil kalibrasi ke Flash (NVS Preferences)
+  isMultiCal = true;
+  cal1 = c1;
+  cal2 = c2;
+  midGrams = 100.0f;
+  midRaw = adjMid;
+  calFactor = ((float)adjMax / (240.0f / 1000.0f)) / G;
+  isCalibrated = true;
+
+  prefs.putBool("is_multi", true);
+  prefs.putFloat("cal1", cal1);
+  prefs.putFloat("cal2", cal2);
+  prefs.putFloat("mid_w", midGrams);
+  prefs.putLong("mid_raw", midRaw);
+  prefs.putFloat("cal", calFactor);
+  prefs.putFloat("sign", forceSign);
+
+  Serial.println("\n[SUKSES] Kalibrasi 2-Titik via Tombol D4 berhasil disimpan!");
+  Serial.printf("         cal1 = %.2f | cal2 = %.2f | Arah = %.1f\n", cal1, cal2, forceSign);
+
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.println("KALIBRASI SUKSES!");
+  display.setCursor(0, 16);
+  display.printf("c1:%.1f  c2:%.1f\n", cal1, cal2);
+  display.setCursor(0, 32);
+  display.println("Disimpan ke Flash");
+  display.setCursor(0, 48);
+  display.println("Alat Siap Digunakan!");
+  display.display();
+  delay(2500);
+}
+
 void setBeban(float grams) {
   bebanGram = grams;
   bebanW = (bebanGram / 1000.0f) * G;
@@ -604,10 +786,6 @@ void draw() {
 
   display.display();
 }
-
-// ---------- WiFiManager & ArduinoOTA (Non-Blocking) ----------
-WiFiManager wm;
-bool otaStarted = false;
 
 // Setup dan Handler ArduinoOTA
 void setupOTA() {
@@ -864,7 +1042,7 @@ void loop() {
       }
       else if (held < T_PRESET) weighLoad();
       else if (held < T_CAL)    nextPreset();
-      else                      calibrate(CAL_REF_G);
+      else                      calibrateMultiOLED(); // Tahan > 5 detik: Wizard Kalibrasi 2-Titik Mandiri!
     }
     lastDraw = millis();
   }
