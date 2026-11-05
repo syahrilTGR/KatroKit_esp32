@@ -84,3 +84,4 @@ Firmware ini sudah dilengkapi fitur **Reset WiFi via Tombol D4**:
    ```
 4. Tahan terus selama 3 detik hingga muncul teks **"WIFI DIRESET! Restarting..."**.
 5. Kredensial WiFi lama terhapus, dan ESP32 akan menyalakan hotspot `KatroKit-AP` (IP `192.168.4.1`) untuk konfigurasi jaringan baru.
+
