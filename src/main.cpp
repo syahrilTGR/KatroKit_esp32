@@ -1046,6 +1046,83 @@ void publishTelemetry() {
   mqttClient.publish(topicTelemetry.c_str(), buffer, n);
 }
 
+// Cek apakah tombol D4 ditahan saat power-up/boot untuk mereset WiFi
+void checkResetWiFiOnBoot() {
+  if (digitalRead(BTN) != LOW) return; // Tidak ditekan, lanjut boot normal
+
+  unsigned long startHold = millis();
+  const unsigned long holdTarget = 3000; // Wajib tahan selama 3 detik
+  bool resetConfirmed = false;
+
+  Serial.println("[BOOT] Tombol D4 terdeteksi ditekan saat power-up. Memulai hitung mundur Reset WiFi...");
+
+  while (digitalRead(BTN) == LOW) {
+    unsigned long elapsed = millis() - startHold;
+    int progressPct = (elapsed * 100) / holdTarget;
+    if (progressPct > 100) progressPct = 100;
+    int remainingSec = (int)((holdTarget - elapsed + 999) / 1000);
+
+    if (oledOk) {
+      display.clearDisplay();
+      display.setTextColor(SSD1306_WHITE);
+      display.setTextSize(1);
+      display.setCursor(26, 4);
+      display.println("RESET WIFI?");
+      display.drawFastHLine(0, 16, 128, SSD1306_WHITE);
+
+      display.setCursor(0, 22);
+      display.printf("Tahan tombol: %d dtk\n", remainingSec);
+      display.setCursor(0, 34);
+      display.println("Lepas utk batalkan");
+
+      // Progress bar animasi
+      display.drawRect(0, 48, 128, 12, SSD1306_WHITE);
+      int barW = (progressPct * 124) / 100;
+      display.fillRect(2, 50, barW, 8, SSD1306_WHITE);
+      display.display();
+    }
+
+    if (elapsed >= holdTarget) {
+      resetConfirmed = true;
+      break;
+    }
+    delay(50);
+  }
+
+  if (resetConfirmed) {
+    Serial.println("[BOOT] 3 detik tercapai! Menghapus kredensial WiFi tersimpan...");
+    if (oledOk) {
+      display.clearDisplay();
+      display.setTextColor(SSD1306_WHITE);
+      display.setTextSize(1);
+      display.setCursor(20, 10);
+      display.println("WIFI DIRESET!");
+      display.drawFastHLine(0, 24, 128, SSD1306_WHITE);
+      display.setCursor(0, 32);
+      display.println("Kredensial Dihapus.");
+      display.setCursor(0, 46);
+      display.println("Restarting ESP32...");
+      display.display();
+    }
+    delay(1000);
+
+    // Hapus data WiFi dari WiFiManager & Flash NVS
+    wm.resetSettings();
+    WiFi.disconnect(true, true);
+    delay(1000);
+
+    // Tunggu sampai tombol dilepas sebelum reboot agar tidak loop
+    while (digitalRead(BTN) == LOW) {
+      delay(20);
+    }
+    delay(200);
+
+    ESP.restart();
+  } else {
+    Serial.println("[BOOT] Tombol dilepas sebelum 3 detik. Batal reset WiFi, lanjut boot normal.");
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   Serial.setTimeout(50);
@@ -1057,7 +1134,12 @@ void setup() {
   oledOk = display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);
   if (!oledOk) {
     Serial.println("OLED tidak terdeteksi! Cek kabel SDA/SCL dan alamat I2C (0x3C/0x3D).");
-  } else {
+  }
+
+  // Cek apakah tombol D4 ditahan saat power-up untuk Reset WiFi (Tahan 3s)
+  checkResetWiFiOnBoot();
+
+  if (oledOk) {
     display.clearDisplay();
     display.setTextColor(SSD1306_WHITE);
     display.setTextSize(2);

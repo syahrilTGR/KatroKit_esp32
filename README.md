@@ -119,6 +119,7 @@ ESP32 DevKit 30-Pin terhubung ke modul-modul sensor melalui PCB Matrix:
 
 Alat ini menggunakan **1 push button serbaguna** di bagian atas casing dengan logika durasi tekan yang intuitif:
 
+### 1. Saat Alat Beroperasi Normal
 ```
 [ Lepas Tombol ]
   ├─ < 1.5 detik   ──>  TARE (Nol-kan Gaya F dan Referensi Jarak s)
@@ -126,6 +127,13 @@ Alat ini menggunakan **1 push button serbaguna** di bagian atas casing dengan lo
   ├─ 3 - 5 detik   ──>  PRESET BEBAN W (Pilihan cepat: 50g, 100g, 150g, 200g, 250g, 500g)
   └─ > 5 detik     ──>  WIZARD KALIBRASI (Kalibrasi 1-Titik atau 2-Segmen)
 ```
+
+### 2. Saat Menyalakan Alat (Power-Up / Boot)
+```
+[ Tahan D4 saat colok kabel USB ]
+  └─ Tahan selama 3 detik  ──>  RESET WIFI & HAPUS KREDENSIAL (Masuk mode KatroKit-AP)
+```
+> Tampilan layar OLED akan memunculkan animasi countdown 3 detik dan progress bar. Jika tombol dilepas sebelum 3 detik, proses dibatalkan dan alat langsung boot normal.
 
 ---
 
@@ -163,26 +171,33 @@ Dashboard web dibangun menggunakan file HTML tunggal mandiri (`web/index.html`) 
 
 ## 🛠️ Instalasi & Upload Firmware
 
-Proyek ini menggunakan ekosistem **PlatformIO**.
+Proyek ini mendukung dua opsi pengembangan: **PlatformIO** (VS Code / CLI) dan **Arduino IDE** (file `.ino`).
 
-### 1. Clone Repositori
+### Opsi A: Menggunakan Arduino IDE
+Tersedia file sketch mandiri `.ino` yang siap dibuka langsung di Arduino IDE:
+- **File Sketch:** [`arduino/KatroKit_esp32/KatroKit_esp32.ino`](arduino/KatroKit_esp32/KatroKit_esp32.ino)
+- **Panduan Instalasi Library & Konfigurasi Board:** Baca dokumentasi lengkap di [**`docs/arduino_ide_guide.md`**](docs/arduino_ide_guide.md).
+
+### Opsi B: Menggunakan PlatformIO
+
+#### 1. Clone Repositori
 ```bash
 git clone https://github.com/syahrilTGR/KatroKit_esp32.git
 cd KatroKit_esp32
 ```
 
-### 2. Compile Firmware
+#### 2. Compile Firmware
 ```bash
 pio run
 ```
 
-### 3. Upload via USB Serial
+#### 3. Upload via USB Serial
 Sambungkan kabel USB Type-C ke ESP32, lalu jalankan:
 ```bash
 pio run -t upload
 ```
 
-### 4. Upload Nirkabel (OTA)
+#### 4. Upload Nirkabel (OTA)
 Jika ESP32 sudah terhubung ke jaringan WiFi yang sama:
 ```bash
 pio run -t upload --upload-port katrokit-esp32.local
