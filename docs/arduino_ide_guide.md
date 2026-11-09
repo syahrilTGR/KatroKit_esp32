@@ -91,10 +91,9 @@ Firmware ini sudah dilengkapi fitur **Reset WiFi via Tombol D4**:
 
 Tombol **D4** mendukung multi-fungsi cerdas:
 - **Klik 1x:** `TARE` (Nol-kan sensor gaya dan acuan ketinggian).
-- **Klik 2x (Cepat <350ms):** `GANTI MODE KATROL` bergantian:
+- **Klik 2x (Cepat <350ms):** `GANTI MODE KATROL` bergantian (Tetap ⇄ Majemuk):
   1. **Katrol Tetap:** $KM\text{ Teori} = 1.0$, $F_{\text{kuasa}} = \frac{F_{\text{sensor}}}{2}$ *(mengoreksi beban tali ganda pada katrol gantung)*.
-  2. **Katrol Bebas:** $KM\text{ Teori} = 2.0$, $F_{\text{kuasa}} = F_{\text{sensor}}$.
-  3. **Katrol Majemuk:** $KM\text{ Teori} = 2.0$, $F_{\text{kuasa}} = F_{\text{sensor}}$.
+  2. **Katrol Majemuk:** $KM\text{ Teori} = 2.0$, $F_{\text{kuasa}} = F_{\text{sensor}}$ *(sensor menahan 1 tali kuasa)*.
   > *Mode katrol otomatis tersimpan ke Flash NVS dan akan terus diingat saat alat dimatikan.*
 - **Tahan 1.5 - 3 detik:** Timbang bobot gantung saat ini sebagai nilai beban $W$.
 - **Tahan 3 - 5 detik:** Menu Preset Beban $W$ cepat ($50\text{g}$, $100\text{g}$, $150\text{g}$, $200\text{g}$, $250\text{g}$, $500\text{g}$).
