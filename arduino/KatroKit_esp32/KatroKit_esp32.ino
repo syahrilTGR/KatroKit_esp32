@@ -94,7 +94,21 @@ unsigned long lastMqttPublish   = 0;
 // Flag sinkronisasi antar-Core (Thread-safe)
 volatile bool remoteTareReq     = false;
 volatile bool remoteResetMaxReq = false;
+volatile int  remoteModeReq     = -1;
+volatile bool remoteNextModeReq = false;
 TaskHandle_t mqttTaskHandle     = NULL;
+
+// ---------- Mode Jenis Katrol (Teori vs Media) ----------
+enum PulleyMode {
+  MODE_TETAP = 0,   // Katrol Tetap: Load cell menahan poros (W + F = 2F) -> F_kuasa = F_sensor / 2
+  MODE_BEBAS = 1,   // Katrol Bebas: Load cell menahan 1 helai tali jangkar -> F_kuasa = F_sensor
+  MODE_MAJEMUK = 2  // Katrol Majemuk: Load cell menahan 1 helai tali jangkar -> F_kuasa = F_sensor
+};
+
+PulleyMode pulleyMode = MODE_TETAP;
+const char* PULLEY_NAMES[] = {"KATROL TETAP", "KATROL BEBAS", "KATROL MAJEMUK"};
+const char* PULLEY_SHORT[] = {"TETAP", "BEBAS", "MAJEMUK"};
+const float PULLEY_KM_THEORY[] = {1.0f, 2.0f, 2.0f};
 
 // ---------- HX711 & Kalibrasi ----------
 HX711 scale;
@@ -135,7 +149,7 @@ float fBuf[F_N];
 int fIdx = 0;
 bool fFull = false;
 long lastRaw = 0;
-float force = 0, forceMax = 0, usaha = 0;
+float force = 0, forceMax = 0, usaha = 0, fSensor = 0;
 float bebanGram = 500.0f;
 float bebanW = 0.0f;
 float km = 0.0f;
@@ -154,6 +168,9 @@ unsigned long lastDist = 0, lastDraw = 0;
 // ---------- Tombol ----------
 bool btnDown = false;
 unsigned long btnDownAt = 0;
+unsigned long lastClickReleaseAt = 0;
+int clickCount = 0;
+bool waitingForDouble = false;
 
 // ---------- Timbang beban ----------
 const float WEIGH_MIN_G    = 20.0f;
@@ -689,6 +706,38 @@ void printDiagnostics() {
   Serial.println("-------------------------------");
 }
 
+void setPulleyMode(PulleyMode mode, bool showPopup = true) {
+  pulleyMode = mode;
+  prefs.putUChar("pulley_mode", (uint8_t)pulleyMode);
+  Serial.printf("[MODE] Mode Katrol diubah ke: %s (Teori KM: %.1f)\n", PULLEY_NAMES[pulleyMode], PULLEY_KM_THEORY[pulleyMode]);
+
+  if (showPopup && oledOk) {
+    display.clearDisplay();
+    display.setTextColor(SSD1306_WHITE);
+    display.setTextSize(1);
+    display.setCursor(12, 6);
+    display.println("GANTI MODE KATROL");
+    display.drawFastHLine(0, 18, 128, SSD1306_WHITE);
+
+    display.setCursor(14, 25);
+    display.println(PULLEY_NAMES[pulleyMode]);
+
+    display.setCursor(20, 39);
+    display.printf("Teori KM = %.1f\n", PULLEY_KM_THEORY[pulleyMode]);
+
+    display.setCursor(10, 53);
+    display.println("[Tersimpan di Flash]");
+    display.display();
+    delay(1200);
+    lastDraw = millis();
+  }
+}
+
+void nextPulleyMode() {
+  int next = ((int)pulleyMode + 1) % 3;
+  setPulleyMode((PulleyMode)next, true);
+}
+
 void handleSerial() {
   if (!Serial.available()) return;
   String s = Serial.readStringUntil('\n');
@@ -697,6 +746,8 @@ void handleSerial() {
   if (s.length() == 0) return;
   char c = s.charAt(0);
   String arg = s.substring(1);
+
+  if (c == 'k') nextPulleyMode();
 
   if (c == 't') tareForce();
   else if (c == 'z') zeroDistance();
@@ -780,8 +831,13 @@ void draw() {
 
   // === ZONA TENGAH: KM = W / F ===
   display.setTextSize(1);
-  display.setCursor(34, 23);
-  display.print("KM = W / F");
+  char modeStr[32];
+  snprintf(modeStr, sizeof(modeStr), "[%s] KM=W/F", PULLEY_SHORT[pulleyMode]);
+  int textW = strlen(modeStr) * 6;
+  int startX = (128 - textW) / 2;
+  if (startX < 0) startX = 0;
+  display.setCursor(startX, 23);
+  display.print(modeStr);
 
   display.setTextSize(2);
   display.setCursor(40, 33);
@@ -929,6 +985,15 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     } else if (strcmp(cmd, "reset_max") == 0) {
       remoteResetMaxReq = true; // Signal ke Core 1
       Serial.println("[MQTT Core0] Request Reset Fmax diterima!");
+    } else if (strcmp(cmd, "set_mode") == 0) {
+      int m = doc["mode"] | -1;
+      if (m >= 0 && m <= 2) {
+        remoteModeReq = m;
+        Serial.printf("[MQTT Core0] Request Set Pulley Mode: %d\n", m);
+      }
+    } else if (strcmp(cmd, "next_mode") == 0) {
+      remoteNextModeReq = true;
+      Serial.println("[MQTT Core0] Request Next Pulley Mode diterima!");
     }
   }
 }
@@ -1029,7 +1094,12 @@ void publishTelemetry() {
   JsonDocument doc;
   doc["token"] = secretToken;
   doc["device_id"] = deviceId;
+  doc["mode"] = (int)pulleyMode;
+  doc["mode_name"] = PULLEY_NAMES[pulleyMode];
+  doc["mode_short"] = PULLEY_SHORT[pulleyMode];
+  doc["km_theory"] = serialized(String(PULLEY_KM_THEORY[pulleyMode], 1));
   doc["f"] = serialized(String(force, 2));
+  doc["f_sensor"] = serialized(String(fSensor, 2));
   doc["f_max"] = serialized(String(forceMax, 2));
   doc["w_n"] = serialized(String(bebanW, 2));
   doc["w_g"] = serialized(String(bebanGram, 1));
@@ -1160,6 +1230,12 @@ void setup() {
   topicTelemetry = "katrokit/" + deviceId + "/telemetry";
   topicCmd = "katrokit/" + deviceId + "/cmd";
 
+  // Muat mode jenis katrol (0: Tetap, 1: Bebas, 2: Majemuk)
+  uint8_t savedMode = prefs.getUChar("pulley_mode", 0);
+  if (savedMode > 2) savedMode = 0;
+  pulleyMode = (PulleyMode)savedMode;
+  Serial.printf("[INIT] Mode Katrol aktif: %s (Teori KM: %.1f)\n", PULLEY_NAMES[pulleyMode], PULLEY_KM_THEORY[pulleyMode]);
+
   mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
   mqttClient.setCallback(mqttCallback);
   mqttClient.setBufferSize(512);
@@ -1226,13 +1302,28 @@ void loop() {
     remoteResetMaxReq = false;
     forceMax = 0;
   }
+  if (remoteModeReq >= 0 && remoteModeReq <= 2) {
+    setPulleyMode((PulleyMode)remoteModeReq, true);
+    remoteModeReq = -1;
+  }
+  if (remoteNextModeReq) {
+    remoteNextModeReq = false;
+    nextPulleyMode();
+  }
 
   handleSerial();
 
   // Gaya
   if (scale.is_ready()) {
     lastRaw = scale.get_value(1);
-    float fInstant = rawToNewtons((float)lastRaw);
+    fSensor = rawToNewtons((float)lastRaw);
+    if (fSensor < 0.0f) fSensor = 0.0f;
+
+    // Perhitungan Gaya Kuasa F sesuai Mode Katrol:
+    // - Mode Tetap: Load cell menahan poros katrol (W + F = 2F), maka F_kuasa = fSensor / 2.0f
+    // - Mode Bebas & Majemuk: Load cell menahan 1 helai tali jangkar, maka F_kuasa = fSensor
+    float fInstant = (pulleyMode == MODE_TETAP) ? (fSensor / 2.0f) : fSensor;
+    if (fInstant < 0.0f) fInstant = 0.0f;
     fBuf[fIdx] = fInstant;
     fIdx++;
     if (fIdx >= F_N) { fIdx = 0; fFull = true; }
@@ -1272,16 +1363,38 @@ void loop() {
   } else if (!pressed && btnDown) {
     btnDown = false;
     unsigned long held = millis() - btnDownAt;
-    if (held >= 50) {                      // abaikan bouncing
-      if (held < T_WEIGH) {
-        tareForce();
-        zeroDistance();
-        showMsg("TARE OK", "Gaya & jarak = 0", "", 700);
+    if (held >= 50) { // abaikan bouncing
+      if (held >= T_WEIGH) {
+        // Tahan lama: batalkan deteksi double-click
+        waitingForDouble = false;
+        clickCount = 0;
+        if (held < T_PRESET)      weighLoad();
+        else if (held < T_CAL)   nextPreset();
+        else                     calibrateMultiOLED(); // Tahan > 5 detik: Wizard Kalibrasi
+      } else {
+        // Klik singkat (< 1.5 detik)
+        clickCount++;
+        lastClickReleaseAt = millis();
+        if (clickCount == 1) {
+          waitingForDouble = true; // Tunggu klik ke-2 dalam 350 ms
+        } else if (clickCount >= 2) {
+          // DOUBLE CLICK TERDETEKSI!
+          waitingForDouble = false;
+          clickCount = 0;
+          nextPulleyMode(); // Ganti Mode Katrol (Tetap -> Bebas -> Majemuk)
+        }
       }
-      else if (held < T_PRESET) weighLoad();
-      else if (held < T_CAL)    nextPreset();
-      else                      calibrateMultiOLED(); // Tahan > 5 detik: Wizard Kalibrasi 2-Titik Mandiri!
     }
+    lastDraw = millis();
+  }
+
+  // Timeout klik tunggal: jika dalam 350 ms tidak ada klik ke-2, jalankan TARE
+  if (waitingForDouble && (millis() - lastClickReleaseAt >= 350)) {
+    waitingForDouble = false;
+    clickCount = 0;
+    tareForce();
+    zeroDistance();
+    showMsg("TARE OK", "Gaya & jarak = 0", "", 700);
     lastDraw = millis();
   }
 
@@ -1326,6 +1439,8 @@ void loop() {
     Serial.print(lastRaw);
     Serial.print(",KM:");
     Serial.print(km, 2);
+    Serial.print(",Mode:");
+    Serial.print(PULLEY_SHORT[pulleyMode]);
     Serial.print(",Jarak_cm:");
     Serial.print(distCm, 1);
     Serial.print(",Pindah_cm:");

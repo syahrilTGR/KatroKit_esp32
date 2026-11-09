@@ -117,16 +117,28 @@ ESP32 DevKit 30-Pin terhubung ke modul-modul sensor melalui PCB Matrix:
 
 ## 🔘 Panduan Penggunaan Tombol D4
 
-Alat ini menggunakan **1 push button serbaguna** di bagian atas casing dengan logika durasi tekan yang intuitif:
+Alat ini menggunakan **1 push button serbaguna** di bagian atas casing dengan deteksi durasi dan multi-klik yang intuitif:
 
 ### 1. Saat Alat Beroperasi Normal
 ```
-[ Lepas Tombol ]
-  ├─ < 1.5 detik   ──>  TARE (Nol-kan Gaya F dan Referensi Jarak s)
-  ├─ 1.5 - 3 detik ──>  TIMBANG BEBAN W (Simpan bobot gantung saat ini sebagai W)
-  ├─ 3 - 5 detik   ──>  PRESET BEBAN W (Pilihan cepat: 50g, 100g, 150g, 200g, 250g, 500g)
-  └─ > 5 detik     ──>  WIZARD KALIBRASI (Kalibrasi 1-Titik atau 2-Segmen)
+[ Tekanan Tombol ]
+  ├─ KLIK 1x (< 1.5 detik) ──>  TARE (Nol-kan Gaya F dan Referensi Jarak s)
+  ├─ KLIK 2x (Cepat <350ms)──>  GANTI MODE KATROL (Tetap ➜ Bebas ➜ Majemuk)
+  ├─ TAHAN 1.5 - 3 detik   ──>  TIMBANG BEBAN W (Simpan bobot gantung saat ini sebagai W)
+  ├─ TAHAN 3 - 5 detik     ──>  PRESET BEBAN W (Pilihan cepat: 50g, 100g, 150g, 200g, 250g, 500g)
+  └─ TAHAN > 5 detik       ──>  WIZARD KALIBRASI (Kalibrasi 1-Titik atau 2-Segmen)
 ```
+
+> [!TIP]
+> **Mode Katrol Tersimpan Permanen:** Mode yang dipilih via klik 2x atau Web Dashboard langsung tersimpan di Flash NVS ESP32 dan tidak akan hilang saat alat dimatikan.
+
+### ⚙️ 3 Mode Katrol & Rumus Fisika
+
+| Mode Katrol | Teori $KM$ | Cara Kerja Pengukuran Gaya Kuasa ($F_{\text{kuasa}}$) | Keterangan Fisika |
+| :--- | :---: | :--- | :--- |
+| **Katrol Tetap** (`MODE_TETAP`) | $1.0$ | $F_{\text{kuasa}} = \frac{F_{\text{sensor}}}{2}$ | Katrol digantung langsung pada sensor load cell. Sensor menahan dua utas tali (tali beban $W$ dan tali tarikan kuasa $F$), sehingga sensor membaca $W + F = 2W$. Pembagian 2 mengembalikan nilai gaya kuasa sebenarnya ($F \approx W$). |
+| **Katrol Bebas** (`MODE_BEBAS`) | $2.0$ | $F_{\text{kuasa}} = F_{\text{sensor}}$ | Sensor menahan satu ujung tali penopang katrol bergerak. Sensor membaca langsung gaya penopang ($F = W / 2$). |
+| **Katrol Majemuk** (`MODE_MAJEMUK`) | $2.0$ | $F_{\text{kuasa}} = F_{\text{sensor}}$ | Sistem kombinasi katrol tetap dan bebas. Sensor menahan satu ujung tali kuasa. |
 
 ### 2. Saat Menyalakan Alat (Power-Up / Boot)
 ```
@@ -153,19 +165,28 @@ Dashboard web dibangun menggunakan file HTML tunggal mandiri (`web/index.html`) 
 {
   "token": "katrokit2026",
   "device_id": "katrokit_01",
-  "f": 1.49,
-  "f_max": 2.01,
-  "w_n": 1.96,
-  "w_g": 200.0,
-  "km": 1.32,
+  "mode": 0,
+  "mode_name": "Katrol Tetap",
+  "mode_short": "TETAP",
+  "km_theory": 1.0,
+  "f": 2.35,
+  "f_sensor": 4.70,
+  "f_max": 2.45,
+  "w_n": 2.35,
+  "w_g": 240.0,
+  "km": 1.00,
   "dist": 18.8,
   "disp": 16.5,
-  "work": 0.25,
+  "work": 0.38,
   "cal": true,
   "raw": 70078,
   "rssi": -60
 }
 ```
+
+### Perintah Remote MQTT (Publish ke `/cmd`):
+- Tare: `{"cmd": "tare"}`
+- Ganti Mode Katrol: `{"cmd": "set_mode", "mode": 0}` *(0: Tetap, 1: Bebas, 2: Majemuk)*
 
 ---
 
