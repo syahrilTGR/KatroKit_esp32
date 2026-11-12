@@ -222,10 +222,13 @@
       <!-- Quick Switch Mode Buttons -->
       <div class="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
         <button type="button" class="btn-mode-select px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 bg-sky-600 text-white shadow-sm" data-mode="0">
-          <i class="fa-solid fa-anchor text-[11px]"></i> Katrol Tetap (KM 1.0)
+          <i class="fa-solid fa-anchor text-[11px]"></i> Katrol Tetap (1.0)
         </button>
         <button type="button" class="btn-mode-select px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 text-slate-400 hover:text-white hover:bg-slate-800" data-mode="1">
-          <i class="fa-solid fa-arrows-split-up-and-left text-[11px]"></i> Katrol Majemuk (KM 2.0)
+          <i class="fa-solid fa-arrow-up text-[11px]"></i> Katrol Bebas (2.0)
+        </button>
+        <button type="button" class="btn-mode-select px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 text-slate-400 hover:text-white hover:bg-slate-800" data-mode="2">
+          <i class="fa-solid fa-arrows-split-up-and-left text-[11px]"></i> Katrol Majemuk (2.0)
         </button>
       </div>
     </div>
@@ -947,7 +950,7 @@
 
       // Pulley Mode extraction
       const mode = typeof data.mode === 'number' ? data.mode : parseInt(data.mode !== undefined ? data.mode : 0);
-      const modeName = data.mode_name || (mode === 0 ? 'Katrol Tetap' : 'Katrol Majemuk');
+      const modeName = data.mode_name || (mode === 0 ? 'Katrol Tetap' : mode === 1 ? 'Katrol Bebas' : 'Katrol Majemuk');
       const kmTheory = typeof data.km_theory === 'number' ? data.km_theory : (mode === 0 ? 1.0 : 2.0);
 
       // Update Mode Selector Banner Badges & Active Button
@@ -1102,9 +1105,9 @@
     document.querySelectorAll('.btn-mode-select').forEach(btn => {
       btn.addEventListener('click', () => {
         const modeVal = parseInt(btn.getAttribute('data-mode'));
-        const modeNames = ['Katrol Tetap', 'Katrol Majemuk'];
+        const modeNames = ['Katrol Tetap', 'Katrol Bebas', 'Katrol Majemuk'];
         sendCommand({ cmd: 'set_mode', mode: modeVal });
-        showToast(`Meminta beralih ke ${modeNames[modeVal] || 'Mode'}...`, 'info');
+        showToast(`Meminta beralih ke ${modeNames[modeVal]}...`, 'info');
       });
     });
 

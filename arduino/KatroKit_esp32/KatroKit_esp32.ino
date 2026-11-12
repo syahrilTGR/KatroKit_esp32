@@ -101,13 +101,14 @@ TaskHandle_t mqttTaskHandle     = NULL;
 // ---------- Mode Jenis Katrol (Teori vs Media) ----------
 enum PulleyMode {
   MODE_TETAP = 0,   // Katrol Tetap: Load cell menahan poros (W + F = 2F) -> F_kuasa = F_sensor / 2
-  MODE_MAJEMUK = 1  // Katrol Majemuk: Load cell menahan 1 helai tali jangkar -> F_kuasa = F_sensor
+  MODE_BEBAS = 1,   // Katrol Bebas: Load cell menahan 1 helai tali jangkar -> F_kuasa = F_sensor
+  MODE_MAJEMUK = 2  // Katrol Majemuk: Load cell menahan 1 helai tali jangkar -> F_kuasa = F_sensor
 };
 
 PulleyMode pulleyMode = MODE_TETAP;
-const char* PULLEY_NAMES[] = {"KATROL TETAP", "KATROL MAJEMUK"};
-const char* PULLEY_SHORT[] = {"TETAP", "MAJEMUK"};
-const float PULLEY_KM_THEORY[] = {1.0f, 2.0f};
+const char* PULLEY_NAMES[] = {"KATROL TETAP", "KATROL BEBAS", "KATROL MAJEMUK"};
+const char* PULLEY_SHORT[] = {"TETAP", "BEBAS", "MAJEMUK"};
+const float PULLEY_KM_THEORY[] = {1.0f, 2.0f, 2.0f};
 
 // ---------- HX711 & Kalibrasi ----------
 HX711 scale;
@@ -733,7 +734,7 @@ void setPulleyMode(PulleyMode mode, bool showPopup = true) {
 }
 
 void nextPulleyMode() {
-  int next = ((int)pulleyMode + 1) % 2;
+  int next = ((int)pulleyMode + 1) % 3;
   setPulleyMode((PulleyMode)next, true);
 }
 
@@ -986,7 +987,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       Serial.println("[MQTT Core0] Request Reset Fmax diterima!");
     } else if (strcmp(cmd, "set_mode") == 0) {
       int m = doc["mode"] | -1;
-      if (m >= 0 && m <= 1) {
+      if (m >= 0 && m <= 2) {
         remoteModeReq = m;
         Serial.printf("[MQTT Core0] Request Set Pulley Mode: %d\n", m);
       }
@@ -1229,9 +1230,9 @@ void setup() {
   topicTelemetry = "katrokit/" + deviceId + "/telemetry";
   topicCmd = "katrokit/" + deviceId + "/cmd";
 
-  // Muat mode jenis katrol (0: Tetap, 1: Majemuk)
+  // Muat mode jenis katrol (0: Tetap, 1: Bebas, 2: Majemuk)
   uint8_t savedMode = prefs.getUChar("pulley_mode", 0);
-  if (savedMode > 1) savedMode = 0;
+  if (savedMode > 2) savedMode = 0;
   pulleyMode = (PulleyMode)savedMode;
   Serial.printf("[INIT] Mode Katrol aktif: %s (Teori KM: %.1f)\n", PULLEY_NAMES[pulleyMode], PULLEY_KM_THEORY[pulleyMode]);
 
@@ -1301,7 +1302,7 @@ void loop() {
     remoteResetMaxReq = false;
     forceMax = 0;
   }
-  if (remoteModeReq >= 0 && remoteModeReq <= 1) {
+  if (remoteModeReq >= 0 && remoteModeReq <= 2) {
     setPulleyMode((PulleyMode)remoteModeReq, true);
     remoteModeReq = -1;
   }
