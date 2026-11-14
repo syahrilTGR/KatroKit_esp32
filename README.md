@@ -35,11 +35,12 @@
 - **Arsitektur FreeRTOS Dual-Core:**
   - **Core 1 (APP_CPU):** 100% didedikasikan untuk sampling sensor, kalkulasi fisika, dan refresh layar OLED (0 ms jitter / no lag).
   - **Core 0 (PRO_CPU):** Menangani WiFi, Hotspot portal, ArduinoOTA, dan streaming MQTT HiveMQ secara asinkron di latar belakang.
-- **Tampilan Onboard OLED 0.96" I2C:** Menampilkan metrik utama fisika secara simultan dengan respon instan.
-- **Navigasi Satu Tombol Cerdas (GPIO 4):** Berbagai fungsi praktis hanya dengan membedakan durasi tekan tombol.
+- **Tampilan Onboard OLED 0.96" I2C:** Menampilkan metrik utama fisika secara simultan beserta badge mode katrol aktif (`[TETAP]`, `[BEBAS]`, `[MAJEMUK]`).
+- **Navigasi Satu Tombol Cerdas (GPIO 4):** Mendukung multi-klik (**1x** Tare Gaya, **2x** Ganti Mode Katrol, **3x** Set Jarak `0 cm`) serta tahan lama (**1.5–3s** Timbang W, **3–5s** Preset W, **>5s** Kalibrasi).
+- **3 Mode Katrol & Referensi Jarak Permanen (NVS Flash):** Mode katrol (`Tetap`, `Bebas`, `Majemuk`) dan titik nol jarak (`distRef`, default `3.0 cm`) tersimpan permanen di Flash NVS dan tidak hilang saat alat dimatikan maupun saat Tare Gaya.
 - **Kalibrasi Load Cell Fleksibel:** Mendukung kalibrasi 1-titik standar dan kalibrasi 2-segmen non-linear (tersimpan di NVS/Flash).
-- **Web Dashboard & Cloud Telemetry:** Streaming data 5 Hz ke public MQTT broker (HiveMQ) dengan validasi **Secret Token PIN**.
-- **Remote Control & Ekspor CSV:** Kontrol Tare dari web dan ekspor seluruh log percobaan ke file spreadsheet CSV sekali klik.
+- **Web Dashboard & Cloud Telemetry:** Streaming data 5 Hz ke public MQTT broker (HiveMQ) dengan validasi **Secret Token PIN**, panel pemilih Mode Katrol, dan efisiensi $KM$ real-time.
+- **Remote Control & Ekspor CSV:** Kontrol **Tare Gaya**, **Set Jarak 0**, serta ganti **Mode Katrol** dari web, dan ekspor seluruh log percobaan ke file spreadsheet CSV sekali klik.
 - **Over-The-Air (OTA) Updates:** Update firmware nirkabel via WiFi lokal (`katrokit-esp32.local`).
 
 ---
@@ -48,11 +49,11 @@
 
 | Parameter Fisika | Simbol | Satuan | Rumus / Metode Perhitungan |
 | :--- | :---: | :---: | :--- |
-| **Gaya Kuasa** | $F$ | Newton ($\text{N}$) | Dibaca langsung oleh Load Cell pada tali penarik |
+| **Gaya Kuasa** | $F$ | Newton ($\text{N}$) | Dibaca dari Load Cell sesuai mode katrol ($F = F_{\text{sensor}}/2$ pada Katrol Tetap; $F = F_{\text{sensor}}$ pada Katrol Bebas & Majemuk) |
 | **Gaya Kuasa Maksimum** | $F_{\text{max}}$ | Newton ($\text{N}$) | Nilai puncak tarikan selama satu siklus kerja |
 | **Berat Beban** | $w$ | Newton ($\text{N}$) | Massa beban gantung ($m$) dikali gravitasi ($w = m \times g$) |
-| **Perpindahan Beban** | $\Delta s$ | $\text{cm}$ / $\text{m}$ | Selisih jarak sensor terhadap posisi nol acuan ($\|s - s_0\|$) |
-| **Keuntungan Mekanis** | $KM$ | Rasio | $KM = \frac{w}{F}$ *(Menentukan efisiensi jenis katrol)* |
+| **Perpindahan Beban** | $\Delta s$ | $\text{cm}$ / $\text{m}$ | Selisih jarak sensor terhadap posisi nol acuan ($|s - s_0|$, default $s_0 = 3.0\text{ cm}$) |
+| **Keuntungan Mekanis** | $KM$ | Rasio | $KM = \frac{w}{F}$ *(Dibandingkan terhadap $KM_{\text{teori}}$: $1.0$ Tetap, $2.0$ Bebas/Majemuk)* |
 | **Usaha / Kerja** | $W$ | Joule ($\text{J}$) | $W = F \times \Delta s$ |
 
 ---
@@ -84,7 +85,7 @@ flowchart TD
 
   Core0 -->|"MQTT Publish (TCP 1883)"| HiveMQ["HiveMQ Broker (broker.hivemq.com)"]
   HiveMQ -->|"WebSocket (WSS 8884)"| Web["Web Dashboard (GitHub Pages)"]
-  Web -->|"Remote Command (Tare / Reset)"| HiveMQ
+  Web -->|"Remote Command (Tare / Set Mode / Jarak 0)"| HiveMQ
 ```
 
 ---
@@ -122,15 +123,16 @@ Alat ini menggunakan **1 push button serbaguna** di bagian atas casing dengan de
 ### 1. Saat Alat Beroperasi Normal
 ```
 [ Tekanan Tombol ]
-  ├─ KLIK 1x (< 1.5 detik) ──>  TARE (Nol-kan Gaya F dan Referensi Jarak s)
-  ├─ KLIK 2x (Cepat <350ms)──>  GANTI MODE KATROL (Tetap ➜ Bebas ➜ Majemuk)
+  ├─ KLIK 1x (< 1.5 detik) ──>  TARE GAYA (Nol-kan Gaya F tanpa mengubah referensi jarak)
+  ├─ KLIK 2x (Cepat <380ms)──>  GANTI MODE KATROL (Tetap ➜ Bebas ➜ Majemuk)
+  ├─ KLIK 3x (Cepat <380ms)──>  SET JARAK 0 cm (Simpan jarak saat ini sebagai distRef permanen; default 3.0 cm)
   ├─ TAHAN 1.5 - 3 detik   ──>  TIMBANG BEBAN W (Simpan bobot gantung saat ini sebagai W)
   ├─ TAHAN 3 - 5 detik     ──>  PRESET BEBAN W (Pilihan cepat: 50g, 100g, 150g, 200g, 250g, 500g)
   └─ TAHAN > 5 detik       ──>  WIZARD KALIBRASI (Kalibrasi 1-Titik atau 2-Segmen)
 ```
 
 > [!TIP]
-> **Mode Katrol Tersimpan Permanen:** Mode yang dipilih via klik 2x atau Web Dashboard langsung tersimpan di Flash NVS ESP32 dan tidak akan hilang saat alat dimatikan.
+> **Tersimpan Permanen:** Mode katrol dan titik nol referensi jarak (`distRef`, default `3.0 cm`) tersimpan di Flash NVS ESP32 sehingga tidak berubah saat alat dimatikan atau saat melakukan Tare Gaya.
 
 ### ⚙️ 3 Mode Katrol & Rumus Fisika
 
@@ -166,7 +168,7 @@ Dashboard web dibangun menggunakan file HTML tunggal mandiri (`web/index.html`) 
   "token": "katrokit2026",
   "device_id": "katrokit_01",
   "mode": 0,
-  "mode_name": "Katrol Tetap",
+  "mode_name": "KATROL TETAP",
   "mode_short": "TETAP",
   "km_theory": 1.0,
   "f": 2.35,
@@ -176,7 +178,8 @@ Dashboard web dibangun menggunakan file HTML tunggal mandiri (`web/index.html`) 
   "w_g": 240.0,
   "km": 1.00,
   "dist": 18.8,
-  "disp": 16.5,
+  "dist_ref": 3.0,
+  "disp": 15.8,
   "work": 0.38,
   "cal": true,
   "raw": 70078,
@@ -185,7 +188,8 @@ Dashboard web dibangun menggunakan file HTML tunggal mandiri (`web/index.html`) 
 ```
 
 ### Perintah Remote MQTT (Publish ke `/cmd`):
-- Tare: `{"cmd": "tare"}`
+- Tare Gaya: `{"cmd": "tare"}`
+- Set Titik Nol Jarak (`distRef`): `{"cmd": "zero_dist"}`
 - Ganti Mode Katrol: `{"cmd": "set_mode", "mode": 0}` *(0: Tetap, 1: Bebas, 2: Majemuk)*
 
 ---
