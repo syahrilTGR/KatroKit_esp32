@@ -93,6 +93,7 @@ unsigned long lastMqttPublish   = 0;
 
 // Flag sinkronisasi antar-Core (Thread-safe)
 volatile bool remoteTareReq     = false;
+volatile bool remoteZeroDistReq = false;
 volatile bool remoteResetMaxReq = false;
 volatile int  remoteModeReq     = -1;
 volatile bool remoteNextModeReq = false;
@@ -160,7 +161,7 @@ float dBuf[D_N];
 int dIdx = 0;
 bool dFull = false;
 float distCm = 0;
-float distRef = 0;
+float distRef = 3.0f;
 bool distValid = false;
 
 unsigned long lastDist = 0, lastDraw = 0;
@@ -170,7 +171,8 @@ bool btnDown = false;
 unsigned long btnDownAt = 0;
 unsigned long lastClickReleaseAt = 0;
 int clickCount = 0;
-bool waitingForDouble = false;
+bool waitingForMultiClick = false;
+const unsigned long MULTI_CLICK_WINDOW_MS = 380;
 
 // ---------- Timbang beban ----------
 const float WEIGH_MIN_G    = 20.0f;
@@ -246,12 +248,29 @@ void tareForce() {
   Serial.println("Tare selesai.");
 }
 
-void zeroDistance() {
+void zeroDistance(bool showPopup = true) {
+  if (!distValid) {
+    float d = readDistanceCm();
+    if (d > 2.0f && d < 250.0f) {
+      distCm = d;
+      distValid = true;
+    }
+  }
   if (distValid) {
     distRef = distCm;
-    Serial.print("Jarak awal diset: ");
-    Serial.print(distRef, 1);
-    Serial.println(" cm");
+    prefs.putFloat("dist_ref", distRef);
+    usaha = 0;
+    Serial.printf("[DIST] Referensi jarak (0 cm) diset ke: %.1f cm (tersimpan di Flash)\n", distRef);
+    if (showPopup) {
+      char b1[24];
+      snprintf(b1, sizeof(b1), "Titik 0 = %.1f cm", distRef);
+      showMsg("JARAK DI-NOL-KAN", b1, "[Tersimpan di Flash]", 1200);
+    }
+  } else {
+    Serial.println("[DIST] Gagal set distRef: sensor HC-SR04 belum valid.");
+    if (showPopup) {
+      showMsg("JARAK ERROR", "Cek sensor HC-SR04", "", 1200);
+    }
   }
 }
 
@@ -994,6 +1013,9 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     } else if (strcmp(cmd, "next_mode") == 0) {
       remoteNextModeReq = true;
       Serial.println("[MQTT Core0] Request Next Pulley Mode diterima!");
+    } else if (strcmp(cmd, "zero_dist") == 0) {
+      remoteZeroDistReq = true;
+      Serial.println("[MQTT Core0] Request Zero Distance (distRef) diterima!");
     }
   }
 }
@@ -1105,13 +1127,14 @@ void publishTelemetry() {
   doc["w_g"] = serialized(String(bebanGram, 1));
   doc["km"] = serialized(String(km, 2));
   doc["dist"] = serialized(String(distCm, 1));
+  doc["dist_ref"] = serialized(String(distRef, 1));
   doc["disp"] = serialized(String(fabs(distCm - distRef), 1));
   doc["work"] = serialized(String(usaha, 2));
   doc["cal"] = isCalibrated;
   doc["raw"] = lastRaw;
   doc["rssi"] = WiFi.RSSI();
 
-  char buffer[384];
+  char buffer[448];
   size_t n = serializeJson(doc, buffer);
   mqttClient.publish(topicTelemetry.c_str(), buffer, n);
 }
@@ -1275,7 +1298,9 @@ void setup() {
     if (d > 2.0f && d < 250.0f) { distCm = d; distValid = true; }
     delay(60);
   }
-  if (distValid) distRef = distCm;
+  distRef = prefs.getFloat("dist_ref", 3.0f);
+  if (distRef < 0.0f || distRef > 250.0f) distRef = 3.0f;
+  Serial.printf("[INIT] Referensi Jarak (distRef): %.1f cm\n", distRef);
 
   // Jalankan Task Jaringan (WiFi/MQTT/OTA) di Core 0 (PRO_CPU)
   // Memastikan Core 1 (Sensor, Tombol, Layar) 100% bebas dari lag jaringan!
@@ -1295,8 +1320,11 @@ void loop() {
   if (remoteTareReq) {
     remoteTareReq = false;
     tareForce();
-    zeroDistance();
-    showMsg("REMOTE TARE (WEB)", "Gaya & Jarak = 0", "", 1200);
+    showMsg("REMOTE TARE (WEB)", "Gaya F = 0 N", "", 1000);
+  }
+  if (remoteZeroDistReq) {
+    remoteZeroDistReq = false;
+    zeroDistance(true);
   }
   if (remoteResetMaxReq) {
     remoteResetMaxReq = false;
@@ -1365,8 +1393,8 @@ void loop() {
     unsigned long held = millis() - btnDownAt;
     if (held >= 50) { // abaikan bouncing
       if (held >= T_WEIGH) {
-        // Tahan lama: batalkan deteksi double-click
-        waitingForDouble = false;
+        // Tahan lama: batalkan deteksi multi-click
+        waitingForMultiClick = false;
         clickCount = 0;
         if (held < T_PRESET)      weighLoad();
         else if (held < T_CAL)   nextPreset();
@@ -1375,26 +1403,31 @@ void loop() {
         // Klik singkat (< 1.5 detik)
         clickCount++;
         lastClickReleaseAt = millis();
-        if (clickCount == 1) {
-          waitingForDouble = true; // Tunggu klik ke-2 dalam 350 ms
-        } else if (clickCount >= 2) {
-          // DOUBLE CLICK TERDETEKSI!
-          waitingForDouble = false;
+        if (clickCount >= 3) {
+          // TRIPLE CLICK TERDETEKSI! (Nol-kan referensi jarak distRef)
+          waitingForMultiClick = false;
           clickCount = 0;
-          nextPulleyMode(); // Ganti Mode Katrol (Tetap -> Bebas -> Majemuk)
+          zeroDistance(true);
+        } else {
+          waitingForMultiClick = true; // Tunggu kemungkinan klik berikutnya (1x -> 2x -> 3x)
         }
       }
     }
     lastDraw = millis();
   }
 
-  // Timeout klik tunggal: jika dalam 350 ms tidak ada klik ke-2, jalankan TARE
-  if (waitingForDouble && (millis() - lastClickReleaseAt >= 350)) {
-    waitingForDouble = false;
+  // Timeout multi-click: jalankan aksi 1x (Tare Gaya) atau 2x (Ganti Mode)
+  // Pastikan !btnDown agar tidak terpotong saat user sedang menekan klik berikutnya
+  if (waitingForMultiClick && !btnDown && (millis() - lastClickReleaseAt >= MULTI_CLICK_WINDOW_MS)) {
+    int clicks = clickCount;
+    waitingForMultiClick = false;
     clickCount = 0;
-    tareForce();
-    zeroDistance();
-    showMsg("TARE OK", "Gaya & jarak = 0", "", 700);
+    if (clicks == 1) {
+      tareForce();
+      showMsg("TARE OK", "Gaya F = 0 N", "", 700);
+    } else if (clicks == 2) {
+      nextPulleyMode(); // Ganti Mode Katrol (Tetap -> Bebas -> Majemuk)
+    }
     lastDraw = millis();
   }
 
