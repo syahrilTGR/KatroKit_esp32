@@ -33,7 +33,7 @@ Buka **Library Manager** di Arduino IDE (ikon buku di bilah sisi kiri, atau menu
 | **1** | **Adafruit SSD1306** | Adafruit | Terbaru (v2.5.x) | Jika muncul jendela pop-up *"Install all dependencies"*, klik **Install All** (akan menginstal otomatis *Adafruit BusIO*). |
 | **2** | **Adafruit GFX Library** | Adafruit | Terbaru (v1.11.x+) | Library grafis dasar untuk layar OLED SSD1306. |
 | **3** | **HX711 Arduino Library** | Bogdan Necula | Terbaru (v0.7.5) | Driver komunikasi serial Load Cell ADC 24-bit. |
-| **4** | **WiFiManager** | tzapu | v2.0.16 atau v2.0.17 | Menangani captive portal hotspot `KatroKit-AP` saat WiFi belum terhubung. |
+| **4** | **WiFiManager** | tzapu | v2.0.16 atau v2.0.17 | Menangani captive portal hotspot `SmartLift Edukit` saat WiFi belum terhubung. |
 | **5** | **PubSubClient** | Nick O'Leary | v2.8.0 | Client protokol MQTT untuk streaming data ke HiveMQ. |
 | **6** | **ArduinoJson** | Benoit Blanchon | **Wajib Versi 7.x** | Parser dan serialisasi JSON payload MQTT telemetri. |
 
@@ -83,7 +83,7 @@ Firmware ini sudah dilengkapi fitur **Reset WiFi via Tombol D4**:
    [====               ]
    ```
 4. Tahan terus selama 3 detik hingga muncul teks **"WIFI DIRESET! Restarting..."**.
-5. Kredensial WiFi lama terhapus, dan ESP32 akan menyalakan hotspot `KatroKit-AP` (IP `192.168.4.1`) untuk konfigurasi jaringan baru.
+5. Kredensial WiFi lama terhapus, dan ESP32 akan menyalakan hotspot `SmartLift Edukit` (IP `192.168.4.1`) untuk konfigurasi jaringan baru.
 
 ---
 

@@ -67,7 +67,7 @@ flowchart TD
   subgraph ESP32 ["ESP32 Microcontroller"]
     subgraph Core0 ["Core 0 (PRO_CPU) — Jaringan & Komunikasi"]
       WIFI["WiFiManager & Auto-Reconnect"]
-      AP["Hotspot Fallback (KatroKit-AP)"]
+      AP["Hotspot Fallback (SmartLift Edukit)"]
       OTA["ArduinoOTA Firmware Service"]
       MQTT["HiveMQ MQTT Publisher (5 Hz)"]
     end
@@ -145,7 +145,7 @@ Alat ini menggunakan **1 push button serbaguna** di bagian atas casing dengan de
 ### 2. Saat Menyalakan Alat (Power-Up / Boot)
 ```
 [ Tahan D4 saat colok kabel USB ]
-  └─ Tahan selama 3 detik  ──>  RESET WIFI & HAPUS KREDENSIAL (Masuk mode KatroKit-AP)
+  └─ Tahan selama 3 detik  ──>  RESET WIFI & HAPUS KREDENSIAL (Masuk mode SmartLift Edukit)
 ```
 > Tampilan layar OLED akan memunculkan animasi countdown 3 detik dan progress bar. Jika tombol dilepas sebelum 3 detik, proses dibatalkan dan alat langsung boot normal.
 
