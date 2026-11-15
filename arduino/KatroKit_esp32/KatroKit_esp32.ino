@@ -1045,11 +1045,11 @@ void mqttTask(void *pvParameters) {
         Serial.println(WiFi.localIP());
       } else if (millis() - wifiStartTime >= 15000) {
         wm.setConfigPortalBlocking(false);
-        wm.startConfigPortal("KatroKit-AP");
+        wm.startConfigPortal("SmartLift Edukit");
         apStarted = true;
         wifiState = WIFI_HOTSPOT_NOTIF;
         wifiNotifStart = millis();
-        Serial.println("[WIFI Core0] Timeout 15s tercapai. Hotspot 'KatroKit-AP' aktif di background.");
+        Serial.println("[WIFI Core0] Timeout 15s tercapai. Hotspot 'SmartLift Edukit' aktif di background.");
       }
     } else if (wifiState == WIFI_HOTSPOT_NOTIF) {
       if (apStarted) wm.process();
@@ -1236,10 +1236,12 @@ void setup() {
     display.clearDisplay();
     display.setTextColor(SSD1306_WHITE);
     display.setTextSize(2);
-    display.setCursor(10, 10);
-    display.println("KatroKit");
+    display.setCursor(10, 8);
+    display.println("SmartLift");
     display.setTextSize(1);
-    display.setCursor(10, 40);
+    display.setCursor(10, 28);
+    display.println("Edukit");
+    display.setCursor(10, 46);
     display.println("Jangan sentuh tali...");
     display.display();
   }
@@ -1442,7 +1444,7 @@ void loop() {
       display.println("HOTSPOT AKTIF");
       display.drawFastHLine(0, 18, 128, SSD1306_WHITE);
       display.setCursor(0, 26);
-      display.println("AP: KatroKit-AP");
+      display.println("AP: SmartLift Edukit");
       display.setCursor(0, 42);
       display.println("IP: 192.168.4.1");
       display.display();
